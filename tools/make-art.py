@@ -391,6 +391,7 @@ WINDOWS = {   # the title of each mod's own page
 }
 BUTTON_PICTURES = {   # file, (text, look, width)
     'btn-download': ('Download', 'green', 190),
+    'btn-nexus': ('On Nexus Mods', 'dark', 205),
     'btn-all-mods': ('All mods', 'dark', 170),
     'btn-loader': ('Melvor Mod Loader', 'dark', 250),
     'btn-issue': ('Report a problem', 'red', 240),

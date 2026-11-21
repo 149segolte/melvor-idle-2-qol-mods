@@ -4,6 +4,8 @@
   <a href="../../README.md"><img src="../../docs/img/art/btn-all-mods.svg" alt="All mods" height="46"></a>
   &nbsp;
   <a href="https://github.com/Springs-Tea/melvor-idle-2-qol-mods/releases"><img src="../../docs/img/art/btn-download.svg" alt="Download" height="46"></a>
+  &nbsp;
+  <a href="https://www.nexusmods.com/melvoridle2/mods/17"><img src="../../docs/img/art/btn-nexus.svg" alt="On Nexus Mods" height="46"></a>
 </p>
 
 > What does an hour of this fight give me, what does it cost, and will I die?
@@ -220,6 +222,8 @@ Everything is in `mods\CombatSim`:
 | "This game version loads saves differently" or "copies are not being released" | A game update changed something the simulator depends on. It needs an update; the rest of the game is unaffected. |
 
 ## Install
+
+<p>Get the zip from <a href="https://github.com/Springs-Tea/melvor-idle-2-qol-mods/releases">Releases</a>, or from <a href="https://www.nexusmods.com/melvoridle2/mods/17">the mod's page on Nexus Mods</a> if you prefer.</p>
 
 1. Install the [Melvor Mod Loader](https://www.nexusmods.com/melvoridle2/mods/2) (0.1.3 or newer).
 2. Open the game folder: Steam > right-click Melvor Idle 2 > Manage > Browse local files.

@@ -124,6 +124,8 @@ def body(lines, folder, images):
             i += 1
             continue
 
+        # A paragraph written as <p>...</p> gives only its pictures. One without pictures is for GitHub alone:
+        # the line that says where to download from, which on Nexus is the page one is reading.
         if stripped.startswith('<p>') or stripped.startswith('<img'):
             paragraph(buffer); buffer = []
             block = []

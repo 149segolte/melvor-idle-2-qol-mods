@@ -12,6 +12,8 @@
 <p align="center">
   <a href="https://github.com/Springs-Tea/melvor-idle-2-qol-mods/releases"><img src="docs/img/art/btn-download.svg" alt="Download the mods" height="46"></a>
   &nbsp;
+  <a href="https://www.nexusmods.com/melvoridle2/mods/23"><img src="docs/img/art/btn-nexus.svg" alt="The mods on Nexus Mods" height="46"></a>
+  &nbsp;
   <a href="https://www.nexusmods.com/melvoridle2/mods/2"><img src="docs/img/art/btn-loader.svg" alt="Get the Melvor Mod Loader" height="46"></a>
 </p>
 
@@ -41,6 +43,7 @@ Take the ones you want. Each has a page of its own with pictures and details.
       hidden copy of your character. Tick the areas to try, compare saved loadouts, items and spells,
       find the best place to train a skill, look at earlier scans again, then start the fight with one
       click.
+      <br><a href="https://www.nexusmods.com/melvoridle2/mods/17">Also on Nexus Mods</a>
     </td>
   </tr>
   <tr>
@@ -50,6 +53,7 @@ Take the ones you want. Each has a page of its own with pictures and details.
       Hover "Found in" or "Used in" on an item: which enemy drops it and where it lives, how many and how
       likely, and every recipe, chest, thieving target or shop purchase that gives or uses it. Press Alt
       on any item's tooltip, anywhere in the game, to keep it open and do the same there.
+      <br><a href="https://www.nexusmods.com/melvoridle2/mods/18">Also on Nexus Mods</a>
     </td>
   </tr>
   <tr>
@@ -58,6 +62,7 @@ Take the ones you want. Each has a page of its own with pictures and details.
       <h3><a href="mods/RecipeRates">Recipe Rates</a></h3>
       XP per hour on every recipe of a skill's list, the best one in gold. In the XP tooltip the whole
       hour: XP, items made and used, what the products sell for, and how long your materials last.
+      <br><a href="https://www.nexusmods.com/melvoridle2/mods/19">Also on Nexus Mods</a>
     </td>
   </tr>
   <tr>
@@ -66,6 +71,7 @@ Take the ones you want. Each has a page of its own with pictures and details.
       <h3><a href="mods/CombatGoals">Combat Goals</a></h3>
       Combat trains several skills at once; the game's footer shows a level goal for one. A small
       draggable, resizable window with the XP per hour of each and the time left to a goal you set.
+      <br><a href="https://www.nexusmods.com/melvoridle2/mods/20">Also on Nexus Mods</a>
     </td>
   </tr>
   <tr>
@@ -73,6 +79,7 @@ Take the ones you want. Each has a page of its own with pictures and details.
     <td>
       <h3><a href="mods/KillsInCombat">Kills in Combat</a></h3>
       The number of times you have killed the enemy you are fighting, next to its name.
+      <br><a href="https://www.nexusmods.com/melvoridle2/mods/21">Also on Nexus Mods</a>
     </td>
   </tr>
   <tr>
@@ -80,17 +87,14 @@ Take the ones you want. Each has a page of its own with pictures and details.
     <td>
       <h3><a href="mods/DungeonCompletions">Dungeon Completions</a></h3>
       The number of times you have completed each dungeon, in the combat areas menu.
+      <br><a href="https://www.nexusmods.com/melvoridle2/mods/22">Also on Nexus Mods</a>
     </td>
   </tr>
 </table>
 
-The same guides, with the downloads, are on Nexus Mods:
-[Combat Simulator](https://www.nexusmods.com/melvoridle2/mods/17) ·
-[Item Sources](https://www.nexusmods.com/melvoridle2/mods/18) ·
-[Recipe Rates](https://www.nexusmods.com/melvoridle2/mods/19) ·
-[Combat Goals](https://www.nexusmods.com/melvoridle2/mods/20) ·
-[Kills in Combat](https://www.nexusmods.com/melvoridle2/mods/21) ·
-[Dungeon Completions](https://www.nexusmods.com/melvoridle2/mods/22) ·
+Downloads are on this repository's [Releases](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/releases).
+If you would rather use Nexus Mods, every mod has a page
+there too, with the same guide and the same zip, and there is one for
 [all six in one zip](https://www.nexusmods.com/melvoridle2/mods/23).
 
 <h2 align="center"><a name="install"></a><img src="docs/img/art/h-install.svg" alt="Install" width="720"></h2>
@@ -100,7 +104,7 @@ is a plain zip that you extract into the game folder: no installer, nothing outs
 
 1. **Open the game folder**: Steam > right-click Melvor Idle 2 > Manage > Browse local files.
 2. **Install the loader**: extract its zip there. `override.cfg` ends up next to `Melvor2.exe`.
-3. **Add the mods you want**: extract each zip from [Releases](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/releases), or from the mod's page on Nexus Mods, into the same folder. `MelvorIdle2-QoL-Mods-<version>.zip` is all of them in one.
+3. **Add the mods you want**: extract each zip from [Releases](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/releases) into the same folder. `MelvorIdle2-QoL-Mods-<version>.zip` is all of them in one. The same zips are on [Nexus Mods](https://www.nexusmods.com/melvoridle2/mods/23), if you prefer to get them there.
 4. **Start the game** from Steam. A green line in the top left corner says how many mods were loaded.
 
 ```
