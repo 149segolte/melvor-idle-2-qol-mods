@@ -84,6 +84,15 @@ Take the ones you want. Each has a page of its own with pictures and details.
   </tr>
 </table>
 
+The same guides, with the downloads, are on Nexus Mods:
+[Combat Simulator](https://www.nexusmods.com/melvoridle2/mods/17) ·
+[Item Sources](https://www.nexusmods.com/melvoridle2/mods/18) ·
+[Recipe Rates](https://www.nexusmods.com/melvoridle2/mods/19) ·
+[Combat Goals](https://www.nexusmods.com/melvoridle2/mods/20) ·
+[Kills in Combat](https://www.nexusmods.com/melvoridle2/mods/21) ·
+[Dungeon Completions](https://www.nexusmods.com/melvoridle2/mods/22) ·
+[all six in one zip](https://www.nexusmods.com/melvoridle2/mods/23).
+
 <h2 align="center"><a name="install"></a><img src="docs/img/art/h-install.svg" alt="Install" width="720"></h2>
 
 The mods run on the unofficial [Melvor Mod Loader](https://www.nexusmods.com/melvoridle2/mods/2). Everything
@@ -91,7 +100,7 @@ is a plain zip that you extract into the game folder: no installer, nothing outs
 
 1. **Open the game folder**: Steam > right-click Melvor Idle 2 > Manage > Browse local files.
 2. **Install the loader**: extract its zip there. `override.cfg` ends up next to `Melvor2.exe`.
-3. **Add the mods you want**: extract each zip from [Releases](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/releases) into the same folder. `MelvorIdle2-QoL-Mods-<version>.zip` is all of them in one.
+3. **Add the mods you want**: extract each zip from [Releases](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/releases), or from the mod's page on Nexus Mods, into the same folder. `MelvorIdle2-QoL-Mods-<version>.zip` is all of them in one.
 4. **Start the game** from Steam. A green line in the top left corner says how many mods were loaded.
 
 ```

@@ -15,7 +15,8 @@ They are DLLs that the Melvor Mod Loader loads into the game. To make it easy to
 - They never modify the save or the game's files.
 
 Download the mods only from this repository's [releases](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/releases)
-or from the project's pages on Nexus Mods. A DLL from anywhere else is not ours, whatever it is called.
+or from the project's pages on Nexus Mods (listed in the [README](README.md#the-mods)). A DLL from anywhere
+else is not ours, whatever it is called.
 
 ## Supported versions
 
