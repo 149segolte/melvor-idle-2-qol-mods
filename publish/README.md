@@ -29,14 +29,20 @@ enough to install from. The release notes are the changelog entry, with the inst
 
 ## A mod's page on Nexus
 
-The texts are in `dist\nexus\<Mod>.txt` after packaging: name, version, summary and description, ready to
-paste. `Pack.txt` is the page of the all-in-one zip.
+The texts are in `dist\nexus\<Mod>.txt` after packaging: name, version, summary and a short description.
+`Pack.txt` is the page of the all-in-one zip.
 
-1. Add a mod to the Melvor Idle 2 section and paste the name, the summary and the description.
-2. Upload `dist\<Mod>-<version>.zip` as the main file, with the same version number.
-3. Under **Requirements**, add **Melvor Mod Loader** (minimum 0.1.3) as a required file.
-4. Add the mod's pictures from `docs/img`.
-5. Under permissions, link this repository as the source.
+1. Add a mod to the Melvor Idle 2 section and paste the name and the summary. Author: Springs-Tea.
+2. **Media**: the header is `dist\nexus\headers\<Mod>.png` (`python tools/nexus-headers.py` draws them from
+   the README art); the gallery is the mod's pictures from `docs/img`.
+3. Upload `dist\<Mod>-<version>.zip` as the main file, with the same version number.
+4. Under **Requirements**, add **Melvor Mod Loader** (minimum 0.1.3) as a required file.
+5. **The description is the mod's guide**, so the page says what its `README.md` says. Nexus shows a picture
+   only from a web address: `nexus/images.json` holds, per page, the address each gallery picture got. After
+   uploading a new picture, add its address there. Then run `python tools/nexus-pages.py`: it writes
+   `dist\nexus\<Mod>.bbcode`; paste it into the description in source view. The numbers of the pages are at the
+   top of the script, so the guides link to each other.
+6. Under permissions, link this repository as the source.
 
-For an update: upload the new zip as the main file with the new version, and paste the changelog entry into
-the page's changelog.
+For an update: upload the new zip as the main file with the new version, paste the changelog entry into the
+page's changelog, and when a guide changed, run `tools/nexus-pages.py` again and paste the description.

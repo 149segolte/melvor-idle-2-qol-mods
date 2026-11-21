@@ -1,0 +1,37 @@
+{
+  "CombatSim": {
+    "combat-simulator.png": "https://staticdelivery.nexusmods.com/mods/11155/images/17/17-1795292576-1107704872.png",
+    "combat-simulator-best.png": "https://staticdelivery.nexusmods.com/mods/11155/images/17/17-1795292576-1882413296.png",
+    "combat-simulator-compare.png": "https://staticdelivery.nexusmods.com/mods/11155/images/17/17-1795292577-1188456020.png",
+    "combat-simulator-areas.png": "https://staticdelivery.nexusmods.com/mods/11155/images/17/17-1795292578-1141828444.png",
+    "combat-simulator-spell.png": "https://staticdelivery.nexusmods.com/mods/11155/images/17/17-1795292579-285991954.png",
+    "combat-simulator-history.png": "https://staticdelivery.nexusmods.com/mods/11155/images/17/17-1795292580-1748306650.png",
+    "combat-simulator-picker.png": "https://staticdelivery.nexusmods.com/mods/11155/images/17/17-1795294043-1932858513.png"
+  },
+  "ItemSources": {
+    "item-sources.png": "https://staticdelivery.nexusmods.com/mods/11155/images/18/18-1795292801-531061179.png",
+    "item-sources-used.png": "https://staticdelivery.nexusmods.com/mods/11155/images/18/18-1795292801-932053480.png",
+    "item-sources-pin.png": "https://staticdelivery.nexusmods.com/mods/11155/images/18/18-1795292803-1530942659.png"
+  },
+  "RecipeRates": {
+    "recipe-rates.png": "https://staticdelivery.nexusmods.com/mods/11155/images/19/19-1795292985-1245360284.png",
+    "recipe-rates-list.png": "https://staticdelivery.nexusmods.com/mods/11155/images/19/19-1795292986-1025747024.png"
+  },
+  "CombatGoals": {
+    "combat-goals.png": "https://staticdelivery.nexusmods.com/mods/11155/images/20/20-1795293146-840081244.png"
+  },
+  "KillsInCombat": {
+    "kills-in-combat.png": "https://staticdelivery.nexusmods.com/mods/11155/images/21/21-1795293282-1331416785.png"
+  },
+  "DungeonCompletions": {
+    "kills-in-combat.png": "https://staticdelivery.nexusmods.com/mods/11155/images/22/22-1795293555-205748717.png"
+  },
+  "Pack": {
+    "combat-simulator.png": "https://staticdelivery.nexusmods.com/mods/11155/images/23/23-1795293748-1835672488.png",
+    "item-sources.png": "https://staticdelivery.nexusmods.com/mods/11155/images/23/23-1795293748-290041427.png",
+    "item-sources-pin.png": "https://staticdelivery.nexusmods.com/mods/11155/images/23/23-1795293750-813015522.png",
+    "recipe-rates.png": "https://staticdelivery.nexusmods.com/mods/11155/images/23/23-1795293750-265261722.png",
+    "combat-goals.png": "https://staticdelivery.nexusmods.com/mods/11155/images/23/23-1795293752-698398032.png",
+    "kills-in-combat.png": "https://staticdelivery.nexusmods.com/mods/11155/images/23/23-1795293752-2029959629.png"
+  }
+}
