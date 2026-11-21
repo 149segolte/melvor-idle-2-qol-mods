@@ -2,6 +2,11 @@ name: An idea
 description: Something a mod could do better, or a new mod.
 labels: ["idea"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        These mods show what the game already knows and help you act on it. They never give items or XP and
+        never change the save, so an idea that needs either cannot be taken up here.
   - type: dropdown
     id: mod
     attributes:
@@ -28,10 +33,17 @@ body:
     attributes:
       label: What would help?
       description: A sketch or a screenshot of how another game or Melvor Idle 1 mod does it is welcome.
+  - type: textarea
+    id: now
+    attributes:
+      label: How do you manage today?
+      description: By hand, with a spreadsheet, with another mod, not at all. It shows how much the idea would save.
   - type: checkboxes
     id: rules
     attributes:
-      label: The mods only show and help
+      label: Before sending
       options:
         - label: This does not need a mod to give items or XP, or to change the save.
+          required: true
+        - label: I looked through the open issues and this idea is not there yet.
           required: true

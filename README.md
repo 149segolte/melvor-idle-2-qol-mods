@@ -211,7 +211,8 @@ dotnet build mods\RecipeRates\RecipeRates.csproj -c Release
 .\tools\package.ps1
 ```
 
-Want to change something or add a mod? See [CONTRIBUTING.md](CONTRIBUTING.md). What changed between
+Want to change something or add a mod? See [CONTRIBUTING.md](CONTRIBUTING.md); a coding agent starts at
+[AGENTS.md](AGENTS.md). What changed between
 releases is in the [changelog](CHANGELOG.md), and what the mods do and do not do on your computer is in
 [SECURITY.md](SECURITY.md).
 

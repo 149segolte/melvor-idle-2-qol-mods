@@ -1,17 +1,33 @@
 # Contributing
 
-Thanks for wanting to help. Bug reports, ideas and pull requests are all welcome.
+Thanks for wanting to help. Bug reports, ideas and pull requests are all welcome, from people and from the
+coding agents that work for them. An agent should read [AGENTS.md](AGENTS.md) first: it is this page cut
+down to what must be known before touching anything.
 
-## Reporting a problem
+## Reporting a problem, or bringing an idea
 
-Open an [issue](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues/new/choose) and include:
+[Open an issue](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues/new/choose) and pick the form that fits. Each asks for what
+is needed to act on it, so nobody has to come back with questions:
 
-- which mod, and its version (the loader writes it to the log: `Mod loaded: RecipeRates 0.3.0`),
-- the game version (top of the screen in the game) and the loader version,
-- `MelvorModLoader.log` from the game folder. It is rewritten on every start, so copy it right after the
-  problem happened.
+| Form | For | It asks for |
+| --- | --- | --- |
+| **Something is wrong** | A wrong number, a broken look, a mod that does not load. | The mod, what you did and saw, what you expected, the game, mod and loader versions, where the mod is from, the log. |
+| **Broke after a game update** | The game got a new version and a mod stopped working. | The new game version, the mods affected, what you see, the log. |
+| **An idea** | Something a mod could do better, or a new mod. | What you are trying to do in the game, what would help, how you manage today. |
 
-A screenshot helps a lot when something looks wrong.
+Things that make a report easy to act on:
+
+- **One problem or one idea per issue**, and a look through the open ones first.
+- **`MelvorModLoader.log`** from the game folder. It is rewritten on every start, so copy it right after the
+  problem happened. It has the versions (`Melvor Mod Loader 0.2.0 starting`, `Mod loaded: RecipeRates 0.3.0`)
+  and, when a mod gave up, the reason.
+- **A screenshot** when something looks wrong.
+- **For an idea, the situation before the solution.** "I never know which enemy to train Ranged on" says
+  more than "add a table". [Issue #2](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues/2) is a filled-in example.
+- The mods only show and help: an idea that needs a mod to give items or XP, or to change the save, cannot
+  be taken up.
+
+Something that could harm a player is not for a public issue: see [SECURITY.md](SECURITY.md).
 
 ## Setting up
 
@@ -90,11 +106,33 @@ These are what make the mods feel like part of the game and safe to install.
    References to the game's assemblies stay `<Private>false</Private>`. A check on every pull request
    enforces this.
 
+## How a change gets in
+
+`main` changes only through pull requests. That holds for the maintainer too: a rule on the branch refuses
+a direct push, a forced push and deleting it.
+
+1. Fork the repository and make a branch from `main`, named after the change: `recipe-rates/sell-price`.
+2. Make the change and run `.\tools\check-repo.ps1`. It is what the check on GitHub runs.
+3. Open a pull request against `main` and fill in the template.
+4. The check, **Repository checks**, has to pass. It guards the rules of the repository (no game files,
+   complete mods, working links, art that matches its script). It cannot build or run a mod, because the
+   game's DLLs are not on GitHub, so it cannot tell whether your change works.
+5. That is why a maintainer builds the branch and tries it in the game before merging. What you write under
+   "How I tried it" decides how quickly that goes.
+6. It is merged as one commit. Releases, version numbers, tags and the pages on Nexus Mods are the
+   maintainer's: leave the version alone.
+
 ## Sending a pull request
 
-- One change per pull request, with a description of what it does and how you tried it.
+- One change per pull request, with a description of what it does and how you tried it: the game and loader
+  version, and what you did in the game.
 - Say what you could not try. "Built and loaded, but I do not have a dungeon unlocked to see it" is useful.
+  Never write "tested" for something that was only read.
 - Add a picture when the change is visible.
+- When players would notice the change, add one line under `## Unreleased` at the top of `CHANGELOG.md` (add
+  the heading if it is not there), written for players, and keep the mod's `README.md` and `README.txt` in
+  step with the code. A mod's `README.md` is also its page on Nexus Mods.
+- If an AI agent wrote some or all of it, say so, and say what a person looked at in the game.
 - Development helpers (request files, screenshots, dumps) belong inside `#if DEVTOOLS`; no build that a
   player could get contains them.
 - When you add a mod: a folder named like the mod with an empty project file of the same name, both

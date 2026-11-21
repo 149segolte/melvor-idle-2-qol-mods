@@ -6,9 +6,10 @@ page of its own, so players take the ones they want; one more page holds all of 
 
 ## Before a release
 
-1. All the mods share one version: set `<Version>` in `mods/Directory.Build.props` and add a `## <version>`
-   entry to `CHANGELOG.md`. Nothing else holds a version number: `README.txt` and the texts in `nexus/` say
-   `{version}`, and the packaging fills it in.
+1. All the mods share one version: set `<Version>` in `mods/Directory.Build.props` and turn `## Unreleased`
+   in `CHANGELOG.md` into a `## <version>` entry (pull requests collect their lines under that heading).
+   Nothing else holds a version number: `README.txt` and the texts in `nexus/` say `{version}`, and the
+   packaging fills it in.
 2. Run `.\tools\check-repo.ps1`.
 3. Run `.\tools\package.ps1`. It builds every mod in Release and writes into `dist\`:
    - `<Mod>-<version>.zip` for each mod: `mods\<Mod>\<Mod>.dll` and `README.txt`, nothing else. Never the
