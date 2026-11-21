@@ -46,9 +46,32 @@ public sealed class GameStyle(float scale = 1f)
     public StyleBox InnerPanel() =>
         Textured("res://Assets/UI/Textures/Combat/TEX_Combat_22.png", 6, 6, 6, 6, Colors.White, new Color("111110"), new Color("50483d"));
 
-    /// <summary>The dark panel of the game's own tooltips.</summary>
+    /// <summary>The dark panel of the game's own tooltips, with the game's own margins.</summary>
     public StyleBox TooltipPanel() =>
-        Textured("res://Assets/UI/Textures/Tooltips/TEX_Tooltip_Dark_Large.png", 14, 10, 14, 18, Colors.White, new Color("2f2314"), new Color("524943"));
+        Textured("res://Assets/UI/Textures/Tooltips/TEX_Tooltip_Dark_Large.png", 12, 8, 12, 16, Colors.White, new Color("2f2314"), new Color("524943"));
+
+    /// <summary>A small dark tag with a thin grey border: the one the item tooltip shows a price in.</summary>
+    public PanelContainer NoteTag(string text)
+    {
+        var tag = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore, SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+        var box = new StyleBoxFlat { BgColor = new Color("141310"), BorderColor = new Color("5c5c5c") };
+        box.SetBorderWidthAll(1);
+        box.SetCornerRadiusAll(2);
+        box.ContentMarginLeft = box.ContentMarginRight = Px(6);
+        box.ContentMarginTop = box.ContentMarginBottom = Px(2);
+        tag.AddThemeStyleboxOverride("panel", box);
+        tag.AddChild(Text(text, TextPaper, 12, SemiBold));
+        return tag;
+    }
+
+    /// <summary>The thin line under the name in the item tooltip: light on the left, gone on the right.</summary>
+    public Panel FadingLine()
+    {
+        var line = new Panel { CustomMinimumSize = new Vector2(0, Px(2)), MouseFilter = Control.MouseFilterEnum.Ignore };
+        var gradient = new Gradient { Offsets = new[] { 0f, 1f }, Colors = new[] { new Color(1, 1, 1, 0.55f), new Color(1, 1, 1, 0) } };
+        line.AddThemeStyleboxOverride("panel", new StyleBoxTexture { Texture = new GradientTexture1D { Gradient = gradient, Width = 256 } });
+        return line;
+    }
 
     /// <summary>The frame of the game's large pop-up windows (the Mastery Guild, the combat areas menu).</summary>
     public StyleBox ModalPanel() =>

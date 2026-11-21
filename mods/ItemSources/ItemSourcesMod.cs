@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using GamesByMalcs.Melvor2;
 using GamesByMalcs.Melvor2.Components.CombatAreas;
+using GamesByMalcs.Melvor2.Components.Inventories;
 using GamesByMalcs.Melvor2.Data;
 using GamesByMalcs.Melvor2.Data.Items;
 using GamesByMalcs.Melvor2.Entities;
@@ -28,9 +29,21 @@ namespace ItemSources;
 /// </summary>
 public class ItemSourcesMod : IMod
 {
-    // The item a panel shows, and its two rows of icons, are private to the game's view.
+    // The item a panel shows, and its two rows of icons, are private to the game's view. A panel is given
+    // either an item (tooltips) or a stack of them (the bank's selected item): only one of the two is set.
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_Item")]
-    static extern Item? ItemOf(ItemInfoPanel panel);
+    static extern Item? BoundItem(ItemInfoPanel panel);
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_ItemStack")]
+    static extern IReadonlyItemStack? BoundStack(ItemInfoPanel panel);
+
+    static Item? ItemOf(ItemInfoPanel panel) => BoundItem(panel) ?? BoundStack(panel)?.Item;
+
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_Inventory")]
+    static extern IInventory? InventoryOf(ItemInfoPanel panel);
+
+    // The scene of the game's item panel, and the style of the card its tooltip puts it on.
+    const string ItemPanelScene = "res://Entities/Bank/item_info_panel.tscn";
+    const string TooltipCardStyle = "res://Assets/UI/StyleBoxes/tooltip_textured_dark_large.tres";
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_BankTagProductContainer")]
     static extern HBoxContainer? FoundRowOf(ItemInfoPanel panel);
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_BankTagIngredientContainer")]
@@ -56,6 +69,15 @@ public class ItemSourcesMod : IMod
     PanelContainer? _tip;
     string _shown = "";
 
+    // The game's one item tooltip (it follows the pointer everywhere), and the copy of it that Alt pins.
+    Control? _gameTip;
+    ItemInfoPanel? _gameTipPanel;
+    Label? _gameTipHint;
+    CanvasLayer? _pinLayer;
+    PanelContainer? _pinCard;
+    ItemInfoPanel? _pinPanel;
+    bool _altWasDown, _clickWasDown, _pinFailed;
+
     public void OnLoad(ModContext ctx)
     {
         _ctx = ctx;
@@ -73,6 +95,7 @@ public class ItemSourcesMod : IMod
             if (game is not { IsSaveLoaded: true }) { _game = null; Hide(); return; }
             if (!ReferenceEquals(game, _game)) Open(game);
             if (_frame % 20 == 0) FindPanels();
+            Pinning();
 #if DEBUG
             DevRequests();
             if (_devItem != null) return;   // the tooltip is being shown for a picture
@@ -100,6 +123,10 @@ public class ItemSourcesMod : IMod
         _skillOfRecipe = null;
         _areasOfEnemy = null;
         _panels.Clear();
+        _gameTip = null;
+        _gameTipPanel = null;
+        _gameTipHint = null;
+        Unpin();
         Hide();
         // Reading the whole of the game's data takes a moment: beside the game, not in its way.
         Task.Run(() =>
@@ -137,14 +164,23 @@ public class ItemSourcesMod : IMod
 
     void Hover()
     {
-        foreach (ItemInfoPanel panel in _panels)
+        // The pinned copy first: it lies on top of whatever else is there.
+        IEnumerable<ItemInfoPanel> panels = _pinPanel != null && GodotObject.IsInstanceValid(_pinPanel) ? _panels.Prepend(_pinPanel) : _panels;
+        foreach (ItemInfoPanel panel in panels)
         {
             if (!GodotObject.IsInstanceValid(panel) || !panel.IsVisibleInTree() || ItemOf(panel) is not { } item) continue;
             Vector2 mouse = panel.GetGlobalMousePosition();
+#if DEBUG
+            // Development: as if the pointer were on the row, to take a picture of the real thing.
+            if (_devHoverUntil > _frame && (_devHoverFound ? FoundRowOf(panel) : UsedRowOf(panel)) is { } pretend)
+                mouse = pretend.GetGlobalRect().GetCenter();
+#endif
             foreach (var (row, found) in new[] { (FoundRowOf(panel), true), (UsedRowOf(panel), false) })
             {
                 if (row == null || !row.IsVisibleInTree() || !row.GetGlobalRect().HasPoint(mouse)) continue;
-                Show(item, found, row.GetGlobalRect());
+                Rect2 beside = ReferenceEquals(panel, _pinPanel) && _pinCard != null ? _pinCard.GetGlobalRect() : panel.GetGlobalRect();
+                Rect2 line = row.GetGlobalRect();
+                Show(item, found, new Rect2(beside.Position.X, line.Position.Y, beside.Size.X, line.Size.Y));
                 return;
             }
         }
@@ -185,32 +221,31 @@ public class ItemSourcesMod : IMod
         if (_tip == null) return;
         Vector2 size = _tip.GetCombinedMinimumSize(), screen = _tip.GetViewportRect().Size;
         _tip.Size = size;
-        float x = near.Position.X - size.X - 12;
-        if (x < 0) x = Math.Min(near.End.X + 12, screen.X - size.X);
+        float x = near.Position.X - size.X - 8;
+        if (x < 0) x = Math.Min(near.End.X + 8, screen.X - size.X);
         float y = Math.Clamp(near.Position.Y - 12, 0, Math.Max(0, screen.Y - size.Y));
         _tip.Position = new Vector2(MathF.Round(Math.Max(0, x)), MathF.Round(y));
     }
 
+    // Laid out like the game's own item tooltip: the name, a small tag, the fading line, then the lines.
     PanelContainer Build(Item item, bool found, ItemIndex? index)
     {
-        var tip = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        var tip = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore, CustomMinimumSize = new Vector2(_style.Px(280), 0) };
         tip.AddThemeStyleboxOverride("panel", _style.TooltipPanel());
-        var column = _style.Spaced(new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore }, 3);
+        var column = _style.Spaced(new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore }, 4);
         tip.AddChild(column);
 
         var head = _style.Spaced(new HBoxContainer(), 8);
-        head.AddChild(_style.Picture(item.Icon, 24));
         head.AddChild(_style.Text(item.DisplayName.GetPluralText(1), GameStyle.TextWhite, 16, GameStyle.Bold));
-        Label what = _style.Text(found ? "is found in" : "is used in", GameStyle.TextGrey, 13);
-        what.SizeFlagsVertical = Control.SizeFlags.ShrinkEnd;
-        head.AddChild(what);
+        head.AddChild(_style.NoteTag(found ? "Found in" : "Used in"));
         column.AddChild(head);
+        column.AddChild(_style.FadingLine());
 
-        if (index == null) { column.AddChild(_style.Text("Reading the game's data...", GameStyle.TextGrey, 13)); return tip; }
+        if (index == null) { column.AddChild(_style.Text("Reading the game's data...", GameStyle.TextGrey, 14)); return tip; }
         List<ItemRef> refs = (found ? index.For(item)?.Sources : index.For(item)?.Uses) ?? new List<ItemRef>();
         if (refs.Count == 0)
         {
-            column.AddChild(_style.Text(found ? "Nothing in the game's data gives this item." : "Nothing in the game's data uses this item.", GameStyle.TextGrey, 13));
+            column.AddChild(_style.Text(found ? "Nothing in the game's data gives this item." : "Nothing in the game's data uses this item.", GameStyle.TextGrey, 14));
             return tip;
         }
 
@@ -218,9 +253,10 @@ public class ItemSourcesMod : IMod
         var lines = refs.Select(Describe)
             .OrderBy(l => l.Group == "Combat" ? 0 : 1).ThenBy(l => l.Group, StringComparer.OrdinalIgnoreCase)
             .ThenByDescending(l => l.Chance).ThenBy(l => l.Name, StringComparer.OrdinalIgnoreCase).ToList();
-        bool chances = lines.Any(l => l.Chance < 0.9995);
+        bool chances = lines.Any(l => l.Chance < 0.9995), quantities = lines.Any(l => l.Quantity != "");
         var counts = lines.GroupBy(l => l.Group).ToDictionary(g => g.Key, g => g.Count());
         string group = "";
+        Texture2D? groupIcon = null;
         int inGroup = 0, written = 0;
         foreach (Line line in lines)
         {
@@ -229,9 +265,18 @@ public class ItemSourcesMod : IMod
                 group = line.Group;
                 inGroup = 0;
                 int total = counts[group];
-                Label title = _style.Text(total > MaxPerGroup ? $"{group}  ({total})" : group, new Color("ffd16d"), 12, GameStyle.SemiBold);
-                title.CustomMinimumSize = new Vector2(0, _style.Px(20));
-                title.VerticalAlignment = VerticalAlignment.Bottom;
+                // "[skill] Thieving", in the grey of the game's own "Found in:".
+                groupIcon = GameStyle.Icon(group.Replace(" ", ""));
+                var title = _style.Spaced(new HBoxContainer { CustomMinimumSize = new Vector2(0, _style.Px(written == 0 ? 20 : 26)), Alignment = BoxContainer.AlignmentMode.Begin }, 6);
+                if (groupIcon != null)
+                {
+                    TextureRect picture = _style.Picture(groupIcon, 16);
+                    picture.SizeFlagsVertical = Control.SizeFlags.ShrinkEnd;
+                    title.AddChild(picture);
+                }
+                Label name = _style.Text(total > MaxPerGroup ? $"{group}  ({total})" : group, GameStyle.TextDim, 14, GameStyle.Bold);
+                name.SizeFlagsVertical = Control.SizeFlags.ShrinkEnd;
+                title.AddChild(name);
                 column.AddChild(title);
             }
             if (++inGroup > MaxPerGroup || written >= MaxLines)
@@ -241,25 +286,151 @@ public class ItemSourcesMod : IMod
             }
             written++;
             var row = _style.Spaced(new HBoxContainer(), 8);
-            row.AddChild(_style.Picture(line.Icon, 20));
-            Label name = _style.Text(line.Name);
-            name.CustomMinimumSize = new Vector2(_style.Px(230), 0);
-            name.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-            row.AddChild(name);
-            Label quantity = _style.Text(line.Quantity, GameStyle.TextGrey, 13);
-            quantity.HorizontalAlignment = HorizontalAlignment.Right;
-            quantity.CustomMinimumSize = new Vector2(_style.Px(52), 0);
-            row.AddChild(quantity);
+            row.AddChild(_style.Picture(line.Icon ?? groupIcon, 20));
+            Label what = _style.Text(line.Name);
+            what.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            row.AddChild(what);
+            if (quantities)
+            {
+                Label quantity = _style.Text(line.Quantity, GameStyle.TextGrey, 13);
+                quantity.HorizontalAlignment = HorizontalAlignment.Right;
+                quantity.CustomMinimumSize = new Vector2(_style.Px(36), 0);
+                row.AddChild(quantity);
+            }
             if (chances)
             {
-                Label chance = _style.Text(Percent(line.Chance), line.Chance >= 0.9995 ? GameStyle.TextGrey : GameStyle.TextWhite, 14, GameStyle.Bold);
+                bool always = line.Chance >= 0.9995;
+                Label chance = _style.Text(Percent(line.Chance), always ? GameStyle.TextDim : GameStyle.TextWhite, always ? 13 : 14, always ? null : GameStyle.Bold);
                 chance.HorizontalAlignment = HorizontalAlignment.Right;
-                chance.CustomMinimumSize = new Vector2(_style.Px(64), 0);
+                chance.CustomMinimumSize = new Vector2(_style.Px(52), 0);
                 row.AddChild(chance);
             }
             column.AddChild(row);
         }
         return tip;
+    }
+
+    // ---- pinning the game's item tooltip --------------------------------------------------------------------
+
+    // The game shows one tooltip for whatever item the pointer is on, anywhere: the bank, a recipe's materials,
+    // a shop, loot. It follows the pointer, so its "Found in" and "Used in" rows cannot be reached. Alt puts a
+    // copy of it where it is; the copy stays, and its two rows work like the ones in the bank.
+    void Pinning()
+    {
+        bool alt = Input.IsKeyPressed(Key.Alt), click = Input.IsMouseButtonPressed(MouseButton.Left);
+        bool altPressed = alt && !_altWasDown, clicked = click && !_clickWasDown;
+        _altWasDown = alt;
+        _clickWasDown = click;
+
+        bool hovering = GameTipItem(out Item? item, out Control? card);
+        bool pinned = _pinCard != null && GodotObject.IsInstanceValid(_pinCard);
+        if (_gameTipHint != null && GodotObject.IsInstanceValid(_gameTipHint)) _gameTipHint.Visible = !_pinFailed;
+        if (altPressed)
+        {
+            if (hovering) Pin(item!, card!);
+            else if (pinned) Unpin();
+            return;
+        }
+        if (!pinned) return;
+        if (Input.IsKeyPressed(Key.Escape) || (clicked && !_pinCard!.GetGlobalRect().HasPoint(_pinCard.GetGlobalMousePosition()))) Unpin();
+        else KeepOnScreen(_pinCard!);
+    }
+
+    /// <summary>The item the game's tooltip is showing right now, and the card it is drawn on.</summary>
+    bool GameTipItem(out Item? item, out Control? card)
+    {
+        item = null;
+        card = null;
+        if (_gameTip == null || !GodotObject.IsInstanceValid(_gameTip) || _gameTipPanel == null || !GodotObject.IsInstanceValid(_gameTipPanel))
+        {
+            if (_frame % 30 != 0) return false;   // not there yet: looked for now and then
+            _gameTip = GameAccess.FindGameView()?.GetNodeOrNull<Control>("ItemTooltip");
+            _gameTipPanel = null;
+            if (_gameTip == null) return false;
+            var inside = new List<ItemInfoPanel>();
+            void Walk(Node node) { if (node is ItemInfoPanel p) inside.Add(p); else foreach (Node child in node.GetChildren()) Walk(child); }
+            Walk(_gameTip);
+            _gameTipPanel = inside.FirstOrDefault();
+            if (_gameTipPanel == null) return false;
+            // One quiet line at the foot of the game's tooltip, so the key can be found.
+            if (_gameTipPanel.GetParent() is BoxContainer box && box.GetNodeOrNull("ItemSourcesHint") == null)
+            {
+                _gameTipHint = _style.Text("Alt: keep this open", GameStyle.TextDim, 11);
+                _gameTipHint.Name = "ItemSourcesHint";
+                _gameTipHint.HorizontalAlignment = HorizontalAlignment.Right;
+                _gameTipHint.MouseFilter = Control.MouseFilterEnum.Ignore;
+                box.AddChild(_gameTipHint);
+            }
+        }
+        if (!_gameTipPanel.IsVisibleInTree()) return false;
+        item = ItemOf(_gameTipPanel);
+        card = GameTipCard();
+        return item != null;
+    }
+
+    /// <summary>The dark card the game's tooltip draws its item panel on.</summary>
+    Control GameTipCard()
+    {
+        for (Node? up = _gameTipPanel!.GetParent(); up != null && up != _gameTip!.GetParent(); up = up.GetParent())
+            if (up is PanelContainer panel) return panel;
+        return _gameTipPanel;
+    }
+
+    void Pin(Item item, Control gameCard)
+    {
+        Unpin();
+        if (_pinFailed || _gameTipPanel == null) return;
+        try
+        {
+            if (GameStyle.Load<PackedScene>(ItemPanelScene)?.Instantiate() is not ItemInfoPanel copy) throw new InvalidOperationException("the item panel's scene was not found");
+            if (_pinLayer == null || !GodotObject.IsInstanceValid(_pinLayer))
+            {
+                _pinLayer = new CanvasLayer { Layer = 118 };
+                _ctx.Tree.Root.AddChild(_pinLayer);
+            }
+            // The same card, the same panel, set up the way the game's tooltip sets its own.
+            var card = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Stop };
+            card.AddThemeStyleboxOverride("panel", gameCard is PanelContainer ? gameCard.GetThemeStylebox("panel") : _style.TooltipPanel());
+            var column = _style.Spaced(new VBoxContainer(), 8);
+            card.AddChild(column);
+            copy.ShowIcon = _gameTipPanel.ShowIcon;
+            copy.IconSize = _gameTipPanel.IconSize;
+            copy.ShowOpenableCapability = _gameTipPanel.ShowOpenableCapability;
+            copy.CustomMinimumSize = _gameTipPanel.CustomMinimumSize;
+            column.AddChild(copy);
+            Label hint = _style.Text("Kept open  ·  Alt or Esc closes", GameStyle.TextDim, 11);
+            hint.HorizontalAlignment = HorizontalAlignment.Right;
+            hint.MouseFilter = Control.MouseFilterEnum.Ignore;
+            column.AddChild(hint);
+            _pinLayer.AddChild(card);
+            // Bound once it is in the scene: the panel builds itself when it is ready.
+            if (InventoryOf(_gameTipPanel) is { } inventory) copy.Bind(item, inventory); else copy.Bind(item);
+            card.Position = gameCard.GlobalPosition;
+            _pinCard = card;
+            _pinPanel = copy;
+        }
+        catch (Exception e)
+        {
+            // The tooltip of this game version cannot be copied: everything else goes on working.
+            _pinFailed = true;
+            _ctx.Log("Keeping a tooltip open with Alt is switched off: " + e.Message);
+            Unpin();
+        }
+    }
+
+    void Unpin()
+    {
+        if (_pinPanel != null && GodotObject.IsInstanceValid(_pinPanel)) { try { _pinPanel.Unbind(); } catch { } }
+        if (_pinCard != null && GodotObject.IsInstanceValid(_pinCard)) _pinCard.QueueFree();
+        _pinCard = null;
+        _pinPanel = null;
+    }
+
+    static void KeepOnScreen(Control card)
+    {
+        Vector2 screen = card.GetViewportRect().Size, size = card.Size;
+        Vector2 at = new(Math.Clamp(card.Position.X, 0, Math.Max(0, screen.X - size.X)), Math.Clamp(card.Position.Y, 0, Math.Max(0, screen.Y - size.Y)));
+        if (at != card.Position) card.Position = at;
     }
 
     static string Percent(double chance) =>
@@ -348,15 +519,122 @@ public class ItemSourcesMod : IMod
     }
 
 #if DEBUG
+    // Development: a file "item.dump" writes every item panel of the scene to the log, shown or not, with the
+    // two rows this mod watches and what sits around them.
+    void DevDump()
+    {
+        var all = new List<ItemInfoPanel>();
+        void Walk(Node node) { if (node is ItemInfoPanel p) all.Add(p); for (int i = 0, n = node.GetChildCount(); i < n; i++) Walk(node.GetChild(i)); }
+        Walk(_ctx.Tree.Root);
+        Node? view = GameAccess.FindGameView();
+        if (view?.GetNodeOrNull("ItemTooltip") is { } gameTip)
+        {
+            _ctx.Log($"Dev: the game's item tooltip is a {gameTip.GetType().FullName}, layer/parent {gameTip.GetParent()?.GetType().Name}:{gameTip.GetParent()?.Name}, top level {(gameTip as Control)?.TopLevel}, z {(gameTip as CanvasItem)?.ZIndex}");
+            int budget = 90;
+            DevTree(gameTip, 0, ref budget);
+        }
+        _ctx.Log($"Dev: {all.Count} item panels in the scene, {_panels.Count} watched; mouse {_ctx.Tree.Root.GetMousePosition()}; game view {view?.GetPath()}");
+        foreach (ItemInfoPanel panel in all)
+        {
+            _ctx.Log($"Dev: panel {panel.GetPath()} shown={panel.IsVisibleInTree()} inView={(view != null && view.IsAncestorOf(panel))} item={ItemOf(panel)?.DisplayName.GetPluralText(1) ?? "-"} rect={panel.GetGlobalRect()}");
+            foreach (var (row, name) in new[] { (FoundRowOf(panel), "found"), (UsedRowOf(panel), "used") })
+            {
+                if (row == null) { _ctx.Log($"Dev:   {name}: no row"); continue; }
+                _ctx.Log($"Dev:   {name}: {panel.GetPathTo(row)} shown={row.IsVisibleInTree()} rect={row.GetGlobalRect()} children={row.GetChildCount()}");
+                for (Node? up = row.GetParent(); up != null && up != panel.GetParent(); up = up.GetParent())
+                {
+                    string kids = string.Join(", ", up.GetChildren().Select(c => $"{c.GetType().Name}:{c.Name}{(c is Label l ? "='" + l.Text + "'" : "")}{(c is CanvasItem { Visible: false } ? "(hidden)" : "")}"));
+                    _ctx.Log($"Dev:     up {up.GetType().Name}:{up.Name} rect={(up as Control)?.GetGlobalRect()} mouse={(up as Control)?.MouseFilter} [{kids}]");
+                    if (up == panel) break;
+                }
+            }
+        }
+    }
+
+    // Development: the look of a part of the game's scene, node by node: styles, fonts, sizes, colours.
+    void DevTree(Node node, int depth, ref int budget)
+    {
+        if (budget-- <= 0 || depth > 9) return;
+        string line = new string(' ', depth * 2) + $"{node.GetType().Name}:{node.Name}";
+        if (node.SceneFilePath != "") line += $" scene={node.SceneFilePath}";
+        if (node is CanvasItem { Visible: false }) line += " (hidden)";
+        if (node is Control control)
+        {
+            line += $" size={control.Size} min={control.CustomMinimumSize} mouse={control.MouseFilter}";
+            if (control.ThemeTypeVariation != "") line += $" variation={control.ThemeTypeVariation}";
+            if (control.Modulate != Colors.White) line += $" modulate={control.Modulate.ToHtml()}";
+            if (control.SelfModulate != Colors.White) line += $" selfModulate={control.SelfModulate.ToHtml()}";
+        }
+        string Box(StyleBox? box) => box switch
+        {
+            StyleBoxTexture t => $"texture {t.Texture?.ResourcePath} size={t.Texture?.GetSize()} texMargins={t.TextureMarginLeft},{t.TextureMarginTop},{t.TextureMarginRight},{t.TextureMarginBottom} content={t.ContentMarginLeft},{t.ContentMarginTop},{t.ContentMarginRight},{t.ContentMarginBottom} expand={t.ExpandMarginLeft},{t.ExpandMarginTop},{t.ExpandMarginRight},{t.ExpandMarginBottom} stretch={t.AxisStretchHorizontal}/{t.AxisStretchVertical} modulate={t.ModulateColor.ToHtml()} region={t.RegionRect} center={t.DrawCenter} path={t.ResourcePath}",
+            StyleBoxFlat f => $"flat bg={f.BgColor.ToHtml()} border={f.BorderColor.ToHtml()} widths={f.BorderWidthLeft},{f.BorderWidthTop},{f.BorderWidthRight},{f.BorderWidthBottom} radius={f.CornerRadiusTopLeft} content={f.ContentMarginLeft},{f.ContentMarginTop},{f.ContentMarginRight},{f.ContentMarginBottom} path={f.ResourcePath}",
+            StyleBoxLine l => $"line color={l.Color.ToHtml()} thickness={l.Thickness} grow={l.GrowBegin},{l.GrowEnd} path={l.ResourcePath}",
+            null => "none",
+            _ => box.GetType().Name + " " + box.ResourcePath,
+        };
+        switch (node)
+        {
+            case PanelContainer panel: line += " panel=[" + Box(panel.GetThemeStylebox("panel")) + "]"; break;
+            case Panel panel: line += " panel=[" + Box(panel.GetThemeStylebox("panel")) + "]"; break;
+            case Label label:
+                line += $" text='{label.Text}' font={(label.LabelSettings?.Font ?? label.GetThemeFont("font"))?.ResourcePath} size={label.LabelSettings?.FontSize ?? label.GetThemeFontSize("font_size")} color={(label.LabelSettings?.FontColor ?? label.GetThemeColor("font_color")).ToHtml()} settings={label.LabelSettings?.ResourcePath} wrap={label.AutowrapMode}";
+                break;
+            case TextureRect picture: line += $" texture={picture.Texture?.ResourcePath} expand={picture.ExpandMode} stretch={picture.StretchMode}"; break;
+            case Separator separator: line += " separator=[" + Box(separator.GetThemeStylebox("separator")) + $"] separation={separator.GetThemeConstant("separation")}"; break;
+            case BoxContainer box: line += $" separation={box.GetThemeConstant("separation")} align={box.Alignment}"; break;
+            case MarginContainer margin: line += $" margins={margin.GetThemeConstant("margin_left")},{margin.GetThemeConstant("margin_top")},{margin.GetThemeConstant("margin_right")},{margin.GetThemeConstant("margin_bottom")}"; break;
+            case FlowContainer flow: line += $" hsep={flow.GetThemeConstant("h_separation")} vsep={flow.GetThemeConstant("v_separation")}"; break;
+        }
+        _ctx.Log("Dev: " + line);
+        foreach (Node child in node.GetChildren()) DevTree(child, depth + 1, ref budget);
+    }
+
     // Development: a file "item.request" holding part of an item's name (and optionally "|used") writes that
     // item's lines to the log and shows its tooltip in the middle of the screen for a picture.
-    int _devShotAt = -1;
+    int _devShotAt = -1, _devHoverUntil = -1;
+    bool _devHoverFound = true;
     Item? _devItem;
     bool _devFound = true;
 
     void DevRequests()
     {
         string request = Path.Combine(_ctx.Directory, "item.request");
+        string dump = Path.Combine(_ctx.Directory, "item.dump");
+        // "item.pin" holding part of an item's name: as if Alt were pressed with the pointer on that item.
+        string pin = Path.Combine(_ctx.Directory, "item.pin");
+        if (_frame % 30 == 0 && File.Exists(pin) && _game != null)
+        {
+            string wanted = File.ReadAllText(pin).Trim();
+            File.Delete(pin);
+            GameTipItem(out _, out _);
+            Item? pick = _game.Data.GetDataRegistryOutput<Item>().GetAllObjects().FirstOrDefault(i => i.DisplayName.GetPluralText(1).Contains(wanted, StringComparison.OrdinalIgnoreCase));
+            _ctx.Log($"Dev: pin '{wanted}' -> {pick?.Id}; game tooltip {(_gameTip == null ? "not found" : _gameTip.GetPath())}, panel {(_gameTipPanel == null ? "not found" : "found")}");
+            if (pick != null && _gameTipPanel != null)
+            {
+                Vector2 screen = _ctx.Tree.Root.GetVisibleRect().Size;
+                Pin(pick, GameTipCard());
+                if (_pinCard != null) _pinCard.Position = new Vector2(screen.X * 0.45f, screen.Y * 0.3f);
+                _ctx.Log($"Dev: pinned = {_pinCard != null}, failed = {_pinFailed}");
+            }
+        }
+        string hover = Path.Combine(_ctx.Directory, "item.hover");
+        if (_frame % 30 == 0 && File.Exists(hover))
+        {
+            _devHoverFound = !File.ReadAllText(hover).Trim().Equals("used", StringComparison.OrdinalIgnoreCase);
+            File.Delete(hover);
+            _devHoverUntil = _frame + 90;
+        }
+        if (_devHoverUntil > 0 && _frame == _devHoverUntil - 1)
+        {
+            _ctx.Tree.Root.GetTexture().GetImage().SavePng(Path.Combine(_ctx.Directory, "shot-hover.png"));
+            _ctx.Log($"Dev: saved shot-hover.png, tooltip shown for '{_shown}', layer visible {_layer is { Visible: true }}");
+        }
+        if (_frame % 30 == 0 && File.Exists(dump))
+        {
+            File.Delete(dump);
+            DevDump();
+        }
         if (_frame % 30 == 0 && File.Exists(request) && _index != null && _game != null)
         {
             string[] parts = File.ReadAllText(request).Trim().Split('|');

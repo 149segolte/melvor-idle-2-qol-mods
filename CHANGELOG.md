@@ -2,7 +2,24 @@
 
 Every mod has a version of its own; this file lists the releases of the repository as a whole.
 
-## Combat Simulator 0.2.0
+## 0.2.0
+
+For Melvor Idle 2 0.11.6-alpha.1 with Melvor Mod Loader 0.1.3. Combat Simulator and Item Sources are new
+versions; the other four mods are unchanged at 0.1.0.
+
+### Item Sources 0.2.0
+
+- **Fixed, important**: hovering "Found in" or "Used in" on the item selected in the bank showed nothing.
+  The bank hands its panel a stack of items rather than an item, and only the item was looked at. (The
+  pictures of 0.1.0 were made through a development shortcut that did not go this way.)
+- **Alt keeps a tooltip open**: press Alt while the game's item tooltip is up, anywhere in the game, and a
+  copy of it stays where it is, with rows that can be hovered like the ones in the bank. Alt again, Esc or
+  a click elsewhere closes it.
+- The list is redrawn the way the game draws its own item tooltip: the name with a small tag, the fading
+  line, groups with their skill's icon, and no wider than what it holds.
+- It opens beside the whole item panel instead of over its icon.
+
+### Combat Simulator 0.2.0
 
 - **Where** is a list you tick: one area, several, a whole category, or nothing for everything. "Best for"
   uses it too, so a search can be kept to the areas you care about.

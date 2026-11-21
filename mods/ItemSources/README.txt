@@ -1,13 +1,17 @@
-ITEM SOURCES 0.1.0
+ITEM SOURCES 0.2.0
 for Melvor Idle 2 (tested on 0.11.6-alpha.1), needs Melvor Mod Loader
 
-The item panel in the bank says "Found in" and "Used in" with a few skill icons. Hover either row
-and this lists what is behind them:
+The game's item panel says "Found in" and "Used in" with a few skill icons. Hover either row and
+this lists what is behind them:
 
   Found in   which enemy drops the item and where that enemy lives, which thieving target,
              hunting animal, chest, recipe, quest or shop purchase gives it, how many, and how
              likely.
   Used in    every recipe, upgrade, shop purchase or animal that uses it, and how many.
+
+Anywhere in the game: press Alt while an item's tooltip is up (on a recipe's materials, in a shop,
+on loot) and the tooltip stays open, so you can move onto its two rows. Alt again, Esc or a click
+somewhere else closes it.
 
 The chances are worked out from the game's own drop tables. The list is read from the game's
 data when a character is opened, so items and enemies a game update adds show up by themselves.

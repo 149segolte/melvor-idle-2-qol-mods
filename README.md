@@ -48,7 +48,8 @@ Take the ones you want. Each has a page of its own with pictures and details.
     <td>
       <h3><a href="mods/ItemSources">Item Sources</a></h3>
       Hover "Found in" or "Used in" on an item: which enemy drops it and where it lives, how many and how
-      likely, and every recipe, chest, thieving target or shop purchase that gives or uses it.
+      likely, and every recipe, chest, thieving target or shop purchase that gives or uses it. Press Alt
+      on any item's tooltip, anywhere in the game, to keep it open and do the same there.
     </td>
   </tr>
   <tr>
