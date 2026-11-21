@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using GamesByMalcs.Melvor2.Components.CombatAreas;
 using GamesByMalcs.Melvor2.Components.Equipment;
 using GamesByMalcs.Melvor2.Components.Loadouts;
+using GamesByMalcs.Melvor2.Components.MagicSpells;
 using GamesByMalcs.Melvor2.Data;
 using GamesByMalcs.Melvor2.Data.Currencies;
 using GamesByMalcs.Melvor2.Data.Items;
@@ -33,7 +34,12 @@ public class CombatSimMod : IMod, ISimLookup
         public float? X { get; set; }
         public float? Y { get; set; }
         public float Scale { get; set; } = 1f;
+        /// <summary>Before areas could be ticked: the one area that was chosen.</summary>
         public string Scope { get; set; } = "";
+        public List<string> Areas { get; set; } = new();
+        public List<string> BestAreas { get; set; } = new();
+        /// <summary>Fights simulated side by side; 0 lets the mod choose (half of the processor, four at most).</summary>
+        public int Workers { get; set; }
         public int Duration { get; set; } = 1;
         public bool Unlimited { get; set; } = true;
         public bool BestMode { get; set; }
@@ -54,6 +60,13 @@ public class CombatSimMod : IMod, ISimLookup
     ModContext _ctx = null!;
     Settings _settings = new();
     SimEngine _engine = null!;
+    SimHistory _history = null!;
+    bool _historyRead;
+    /// <summary>The run that is under way: what it was asked, and the keys of the results it will bring.</summary>
+    Scan? _run;
+    List<string> _runKeys = new();
+    readonly System.Diagnostics.Stopwatch _runClock = new();
+    readonly Dictionary<string, Texture2D?> _areaIcons = new();
     readonly SimState _state = new();
     Game? _game;
     CombatEntity? _combat;
@@ -69,12 +82,17 @@ public class CombatSimMod : IMod, ISimLookup
     {
         _ctx = ctx;
         _settings = ReadSettings();
-        _state.ScopeAreaId = _settings.Scope;
+        if (_settings.Scope != "") { _settings.Areas = new List<string> { _settings.Scope }; _settings.Scope = ""; }
+        _state.FightAreas = _settings.Areas.ToHashSet();
+        _state.BestAreas = _settings.BestAreas.ToHashSet();
         _state.Duration = _settings.Duration;
         _state.Unlimited = _settings.Unlimited;
         _state.BestMode = _settings.BestMode;
         _state.TrainSkillId = _settings.TrainSkill;
         _engine = new SimEngine(ctx.Log);
+        _state.Workers = _settings.Workers > 0 ? Math.Min(_settings.Workers, 16) : SimEngine.DefaultWorkers;
+        _history = new SimHistory(ctx.Directory, ctx.Log);
+        _state.History = _history.Scans;
         ctx.Frame += OnFrame;
         ctx.Log("Ready. The round button on the right edge of the screen opens the simulator.");
     }
@@ -115,7 +133,11 @@ public class CombatSimMod : IMod, ISimLookup
         _state.Results.Clear();
         _state.Catalog.Clear();
         _state.Selected = null;
+        _state.Viewing = null;
         _state.Done = _state.Total = 0;
+        _history.Close();
+        _historyRead = false;
+        _run = null;
         if (now == null) return;
         _combat = now.Entities.TryGetObjectById("MelvorBase:Combat", out GameEntity? c) ? c as CombatEntity : null;
         _bank = now.Entities.TryGetObjectById("MelvorBase:Bank", out GameEntity? b) ? b as BankEntity : null;
@@ -126,10 +148,10 @@ public class CombatSimMod : IMod, ISimLookup
     void BuildCatalog()
     {
         _state.Catalog.Clear();
-        _state.Scopes.Clear();
+        _state.Areas.Clear();
         _targetIcons.Clear();
+        _areaIcons.Clear();
         if (_combat == null) return;
-        var scopes = new List<(string, string)>();
         foreach (ActiveCombatAreaCategory category in _combat.Areas.ActiveCategories.Values)
         {
             string categoryName = category.Category.DisplayName.Text;
@@ -155,12 +177,19 @@ public class CombatSimMod : IMod, ISimLookup
                     _state.Catalog.Add(target);
                     _targetIcons[target.Key] = area.Icon;
                 }
-                if (_state.Catalog.Count > before) scopes.Add(($"{categoryName}: {areaName}", areaId));
+                if (_state.Catalog.Count == before || _areaIcons.ContainsKey(areaId)) continue;
+                var added = _state.Catalog.Skip(before).ToList();
+                bool whole = area.Area is Dungeon;
+                _state.Areas.Add(new AreaChoice(areaId, areaName, categoryName, added.Count, whole,
+                    whole ? 0 : added.Min(t => t.CombatLevel), whole ? 0 : added.Max(t => t.CombatLevel)));
+                // An open area has no picture of its own: its strongest enemy stands for it.
+                _areaIcons[areaId] = whole || area.Area is not CombatArea ? area.Icon
+                    : _targetIcons.GetValueOrDefault(added.OrderByDescending(t => t.CombatLevel).First().Key) ?? area.Icon;
             }
         }
-        _state.Scopes.Add(($"Every unlocked area ({_state.Catalog.Count} fights)", ""));
-        _state.Scopes.AddRange(scopes);
-        if (_state.Scopes.All(s => s.AreaId != _state.ScopeAreaId)) _state.ScopeAreaId = "";
+        // An area that is gone (a game update) must not stay ticked where it cannot be seen.
+        _state.FightAreas.RemoveWhere(id => !_areaIcons.ContainsKey(id));
+        _state.BestAreas.RemoveWhere(id => !_areaIcons.ContainsKey(id));
 
         BuildGear();
 
@@ -203,6 +232,7 @@ public class CombatSimMod : IMod, ISimLookup
 
         var items = _game.Data.GetDataRegistryOutput<Item>();
         WeaponType? weapon = null;
+        WeaponCapability? wielded = null;
         foreach (EquipmentSlot slot in _game.Data.GetDataRegistryOutput<EquipmentSlot>().GetAllObjects())
         {
             if (!_combat.Equipment.TryGetActiveSlot(slot, out IActiveEquipmentSlot? active) || active == null) continue;
@@ -221,13 +251,31 @@ public class CombatSimMod : IMod, ISimLookup
             }
             _state.Gear.Add(new GearSlot(slot.Id, slot.DisplayName.Text, active.GridPosition.X, active.GridPosition.Y,
                 item?.Id, item?.DisplayName.GetPluralText(1) ?? "", quantity, item?.Icon, slot.FitsType?.Icon, changed));
-            if (item != null && item.Capabilities.TryGet(out WeaponCapability? held)) weapon = held.Type;
+            if (item != null && item.Capabilities.TryGet(out WeaponCapability? held)) { weapon = held.Type; wielded = held; }
         }
 
         // The attack stances belong to the weapon of this setup; bare hands have their own.
         weapon ??= _combat.Equipment.DefaultWeapon?.Weapon?.Type;
         _state.Stances.Clear();
         if (weapon != null) _state.Stances.AddRange(weapon.Stances.Select(s => (s.Id, s.DisplayName.Text)));
+
+        // So do the spells: a weapon casts those of its elements, of the books that are unlocked.
+        _state.Spells.Clear();
+        try
+        {
+            if (wielded is { Elements.Count: > 0 })
+                foreach (ActiveSpellBook book in _combat.MagicSpells.ActiveSpellBooks.Values)
+                {
+                    if (book.Data.Requirements is { AreMet: false }) continue;
+                    foreach (ActiveMagicSpell spell in book.Spells)
+                        if (wielded.Elements.Contains(spell.Element) && spell.UnlockRequirements is not { AreMet: false })
+                            _state.Spells.Add(new SpellChoice(spell.Data.Id, spell.DisplayName.Text, book.DisplayName.Text, spell.Icon));
+                }
+        }
+        catch (Exception e) { _ctx.Log("The spells could not be listed (the game was updated?): " + e.Message); }
+        if (_state.Spells.All(s => s.Id != _state.SpellId)) _state.SpellId = "";
+        string? casting = _state.LoadoutId == worn && _state.Overrides.Count == 0 ? _combat.MagicSpells.SelectedSpell?.DisplayName.Text : null;
+        _state.SpellDefault = casting != null ? $"As now: {casting}" : "As the loadout has it";
 
         _state.Skills.Clear();
         foreach (string id in CombatSkillIds)
@@ -251,6 +299,8 @@ public class CombatSimMod : IMod, ISimLookup
 
     Texture2D? ISimLookup.TargetIcon(SimTarget target) => _targetIcons.GetValueOrDefault(target.FightKey);
 
+    Texture2D? ISimLookup.AreaIcon(string areaId) => _areaIcons.GetValueOrDefault(areaId);
+
     Texture2D? ISimLookup.AmountIcon(Amount amount)
     {
         if (_game == null) return null;
@@ -272,6 +322,13 @@ public class CombatSimMod : IMod, ISimLookup
     {
         if (_game == null) return;
         if (!_engine.Running) BuildCatalog();   // unlocks, food and levels may have changed since last time
+        if (!_historyRead)
+        {
+            _historyRead = true;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            _history.Open(_game.CharacterName);
+            if (_history.Scans.Count > 0) _ctx.Log($"{_history.Scans.Count} earlier scans read in {clock.ElapsedMilliseconds} ms.");
+        }
         if (_window is not { IsAlive: true }) Build();
         _window!.Visible = true;
         _view!.Refresh();
@@ -301,12 +358,13 @@ public class CombatSimMod : IMod, ISimLookup
             Build();
             _window!.Visible = true;
         };
-        _view = new SimView(_window, _state, this, Simulate, _engine.Cancel, SaveChoices, BuildGear, () => { Build(); _window!.Visible = true; }, Fight);
+        _view = new SimView(_window, _state, this, Simulate, _engine.Cancel, SaveChoices, BuildGear, () => { Build(); _window!.Visible = true; }, Fight, _history.Clear);
     }
 
     void SaveChoices()
     {
-        _settings.Scope = _state.ScopeAreaId;
+        _settings.Areas = _state.FightAreas.OrderBy(a => a, StringComparer.Ordinal).ToList();
+        _settings.BestAreas = _state.BestAreas.OrderBy(a => a, StringComparer.Ordinal).ToList();
         _settings.Duration = _state.Duration;
         _settings.Unlimited = _state.Unlimited;
         _settings.BestMode = _state.BestMode;
@@ -324,16 +382,33 @@ public class CombatSimMod : IMod, ISimLookup
             UnlimitedSupplies = _state.Unlimited,
             LoadoutId = _state.LoadoutId == "" ? null : _state.LoadoutId,
             Overrides = new Dictionary<string, string>(_state.Overrides),
+            SpellId = _state.SpellId == "" ? null : _state.SpellId,
             SetupKey = _state.SetupKey,
             SetupLabel = _state.SetupLabel,
         };
         _state.Message = "";
-        if (!_engine.Start(_game, targets, options, out string error)) { _state.Message = error; _ctx.Log(error); }
+        _state.Viewing = null;
+        if (!_engine.Start(_game, targets, options, _state.Workers, out string error)) { _state.Message = error; _ctx.Log(error); }
         else
         {
             // Old numbers for these fights would sit next to new ones until they are replaced.
             foreach (SimTarget target in targets) _state.Results.Remove(SimResult.MakeKey(options.SetupKey, target.Key));
-            _ctx.Log($"Simulating {targets.Count} fights, {options.Hours:0.##} h each, supplies {(options.UnlimitedSupplies ? "unlimited" : "from bank")}, with {options.SetupLabel}.");
+            _runKeys = targets.Select(t => SimResult.MakeKey(options.SetupKey, t.Key)).ToList();
+            _run = new Scan
+            {
+                Id = DateTime.UtcNow.Ticks.ToString(),
+                BestMode = _state.BestMode,
+                TrainSkillId = _state.BestMode ? _state.TrainSkillId : "",
+                TrainSkillName = _state.BestMode ? _state.Skills.FirstOrDefault(k => k.Id == _state.TrainSkillId).Name ?? "" : "",
+                Where = _state.ScopeLabel,
+                Hours = options.Hours,
+                Unlimited = options.UnlimitedSupplies,
+                SetupKey = options.SetupKey,
+                SetupLabel = options.SetupLabel,
+                Asked = targets.Count,
+            };
+            _ctx.Log($"Simulating {targets.Count} fights, {options.Hours:0.##} h each, supplies {(options.UnlimitedSupplies ? "unlimited" : "from bank")}, with {options.SetupLabel}, {Math.Min(_state.Workers, targets.Count)} at a time.");
+            _runClock.Restart();
         }
         Pump(force: true);
     }
@@ -354,6 +429,11 @@ public class CombatSimMod : IMod, ISimLookup
                 AttackStance? stance = weapon?.Stances.FirstOrDefault(s => s.Id == target.StanceId);
                 if (weapon != null && stance != null) _combat.Player.SetSelectedStance(weapon, stance);
             }
+
+            // The spell that was simulated, when the equipment is the one that is worn.
+            if (_state.Viewing == null && _state.SpellId != "" && _state.IsWornSetup &&
+                _combat.MagicSpells.ActiveSpells.Keys.FirstOrDefault(s => s.Id == _state.SpellId) is { } spell)
+                _combat.MagicSpells.SelectSpell(spell);
 
             // Selecting what is already being fought would stop it: the game's button is a switch.
             bool fighting = _combat.Action.IsStarted;
@@ -383,21 +463,37 @@ public class CombatSimMod : IMod, ISimLookup
     void Pump(bool force = false)
     {
         bool changed = force;
+        // Asked first: once the engine says it stopped, everything it made is already in the queue.
+        bool running = _engine.Running;
         while (_engine.Finished.TryDequeue(out SimResult? result))
         {
             _state.Results[result.Key] = result;
             changed = true;
         }
-        bool running = _engine.Running;
         if (running != _state.Running || _state.Done != _engine.Done || _state.Current != _engine.Current) changed = true;
         _state.Running = running;
         _state.Done = _engine.Done;
         _state.Total = _engine.Total;
         _state.Current = _engine.Current;
         if (_wasRunning && !running)
-            _ctx.Log($"Simulation finished: {_state.Done} of {_state.Total} fights.");
+        {
+            _ctx.Log($"Simulation finished: {_state.Done} of {_state.Total} fights in {_runClock.Elapsed.TotalSeconds:0.0}s.");
+            KeepScan();
+            changed = true;
+        }
         _wasRunning = running;
         if (changed && _window is { IsAlive: true, Visible: true }) _view?.Refresh();
+    }
+
+    // A run that brought at least one result goes into the history, also when it was stopped half way.
+    void KeepScan()
+    {
+        if (_run is not { } scan) return;
+        _run = null;
+        scan.Results = _runKeys.Select(k => _state.Results.GetValueOrDefault(k)).Where(r => r != null).Select(r => r!).ToList();
+        if (scan.Results.Count == 0) return;
+        scan.At = DateTime.UtcNow;
+        _history.Add(scan);
     }
 
     // ---- the button in the game's strip of round buttons on the right edge -------------------------------
@@ -466,9 +562,13 @@ public class CombatSimMod : IMod, ISimLookup
 #if DEBUG
     // Development: a file "sim.request" opens the window and starts a run; when it is done, a picture of the
     // game goes into the mod's folder and the table into the log. The file holds
-    //   <part of an area's name, or "all">|<duration index>|<1 unlimited, 0 from bank>|<row to select>
+    //   <where>|<duration index>|<1 unlimited, 0 from bank>|<row to select>
+    // where: "all", parts of area names joined by "+", "best <skill>" or "best <skill>@<areas>", or "open" to
+    // only open the window (with "where", "history" or "view" as the picker further on).
     int _devShotAt = -1;
     string? _devSelect, _devPicker;
+    bool _devNoRun;
+    int _devPickerAt = -1;
 
     void DevRequests()
     {
@@ -479,10 +579,26 @@ public class CombatSimMod : IMod, ISimLookup
             File.Delete(request);
             Open();
             string where = parts[0].Trim();
-            _state.BestMode = where.StartsWith("best", StringComparison.OrdinalIgnoreCase);
-            if (_state.BestMode) _state.TrainSkillId = _state.Skills.FirstOrDefault(k => where.EndsWith(k.Name, StringComparison.OrdinalIgnoreCase)).Id ?? "";
-            var scope = _state.Scopes.FirstOrDefault(s => s.AreaId != "" && s.Label.Contains(where, StringComparison.OrdinalIgnoreCase));
-            _state.ScopeAreaId = where.Equals("all", StringComparison.OrdinalIgnoreCase) || scope.AreaId == null ? "" : scope.AreaId;
+            // "w1:<where>" runs the fights one at a time, "w4:" four side by side.
+            if (where.Length > 2 && where[0] == 'w' && char.IsDigit(where[1]) && where[2] == ':') { _state.Workers = where[1] - '0'; where = where[3..]; }
+            _devNoRun = where.Equals("open", StringComparison.OrdinalIgnoreCase);
+            if (!_devNoRun)
+            {
+                _state.BestMode = where.StartsWith("best", StringComparison.OrdinalIgnoreCase);
+                string areas = where;
+                if (_state.BestMode)
+                {
+                    int at = where.IndexOf('@');
+                    string skill = at < 0 ? where : where[..at];
+                    areas = at < 0 ? "all" : where[(at + 1)..];
+                    _state.TrainSkillId = _state.Skills.FirstOrDefault(k => skill.Trim().EndsWith(k.Name, StringComparison.OrdinalIgnoreCase)).Id ?? "";
+                }
+                _state.ScopeAreas.Clear();
+                if (!areas.Equals("all", StringComparison.OrdinalIgnoreCase))
+                    foreach (string piece in areas.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        foreach (AreaChoice area in _state.Areas.Where(a => a.Name.Contains(piece, StringComparison.OrdinalIgnoreCase)))
+                            _state.ScopeAreas.Add(area.AreaId);
+            }
             if (parts.Length > 1 && int.TryParse(parts[1], out int duration)) _state.Duration = duration;
             if (parts.Length > 2) _state.Unlimited = parts[2].Trim() != "0";
             // ...|<part of a loadout name>|<slot whose picker to open>|<slot=item id to swap in>
@@ -495,28 +611,39 @@ public class CombatSimMod : IMod, ISimLookup
                 if (slot != null) _state.Overrides[slot.SlotId] = swap[1].Trim();
             }
             BuildGear();
+            _state.SpellId = parts.Length > 7 ? _state.Spells.FirstOrDefault(s => s.Name.Contains(parts[7].Trim(), StringComparison.OrdinalIgnoreCase))?.Id ?? "" : "";
+            _ctx.Log("Dev: spells = " + string.Join(", ", _state.Spells.Select(s => s.Book + "/" + s.Name)) + "; chosen = " + _state.SpellId);
             _devPicker = parts.Length > 5 ? parts[5].Trim() : null;
             _ctx.Log("Dev: loadouts = " + string.Join(" / ", _state.Loadouts.Select(l => l.Name)) + "; gear = " +
                      string.Join(", ", _state.Gear.Select(g => $"{g.SlotName}:{(g.ItemId == null ? "-" : g.ItemName)}{(g.Changed ? "*" : "")}")));
             Build();
             _window!.Visible = true;
-            Simulate();
+            if (!_devNoRun) Simulate();
             _devSelect = parts.Length > 3 ? parts[3].Trim() : null;
             _devShotAt = -2;   // armed
-            _ctx.Log("Dev: scopes = " + string.Join(" / ", _state.Scopes.Select(s => s.Label)));
+            _ctx.Log("Dev: areas = " + string.Join(" / ", _state.Areas.Select(a => $"{a.CategoryName}: {a.Name} ({a.Fights})")));
         }
-        if (_devShotAt == -2 && !_engine.Running && _state.Done > 0)
+        if (_devShotAt == -2 && !_engine.Running && (_devNoRun || _state.Done > 0))
         {
-            if (_devSelect != null && _state.Results.Values.FirstOrDefault(r => r.Target.Name.Contains(_devSelect, StringComparison.OrdinalIgnoreCase)) is { } pick)
-            { _state.Selected = pick.Target.Key; Build(); _window!.Visible = true; }
-            if (!string.IsNullOrEmpty(_devPicker)) _view?.DevOpenPicker(_devPicker);
+            if (!string.IsNullOrEmpty(_devSelect) && _state.Results.Values.FirstOrDefault(r => r.Target.Name.Contains(_devSelect, StringComparison.OrdinalIgnoreCase)) is { } pick)
+            { _state.Selected = pick.Target.Key; _state.Pinned = true; Build(); _window!.Visible = true; }
+            _devPickerAt = string.IsNullOrEmpty(_devPicker) ? -1 : _frame + 30;   // once the window is laid out
             _devShotAt = _frame + 90;
+        }
+        if (_devPickerAt > 0 && _frame >= _devPickerAt)
+        {
+            _devPickerAt = -1;
+            foreach (string what in _devPicker!.Split('+')) _view?.DevOpenPicker(what);
         }
         if (_devShotAt > 0 && _frame >= _devShotAt)
         {
             _devShotAt = -1;
             _ctx.Tree.Root.GetTexture().GetImage().SavePng(Path.Combine(_ctx.Directory, "shot-sim.png"));
             _ctx.Log("Dev: saved shot-sim.png");
+            Rect2 frame = _window!.Root.GetGlobalRect();
+            foreach (Node child in _window.Layer.GetChildren())
+                if (child is PanelContainer { Visible: true } panel && panel != _window.Root) frame = frame.Merge(panel.GetGlobalRect());
+            _ctx.Log($"Dev: rect = {(int)frame.Position.X},{(int)frame.Position.Y},{(int)frame.End.X},{(int)frame.End.Y}");
             foreach (SimResult r in _state.Results.Values.OrderByDescending(r => r.XpPerHour))
                 _ctx.Log($"Dev: [{r.SetupLabel}] {r.Target.Name + " " + r.Target.StanceName,-30} {string.Join(" ", r.Xp.Select(x => x.Key.Replace("MelvorBase:", "") + "=" + (x.Value / Math.Max(r.Hours, 1e-9)).ToString("N0")))} kills {r.KillsPerHour,7:N0}  xp {r.XpPerHour,8:N0}  gold {r.GoldPerHour,8:N0}  food {r.FoodPerHour,6:N1}  deaths {r.DeathsPerHour,5:N1}  " +
                          $"lowHP {r.LowestHpFraction,4:P0}  {r.RealMilliseconds,5:N0} ms  {r.Note}");

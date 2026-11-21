@@ -13,6 +13,7 @@ using GamesByMalcs.Melvor2;
 using GamesByMalcs.Melvor2.Components.CombatAreas;
 using GamesByMalcs.Melvor2.Components.Equipment;
 using GamesByMalcs.Melvor2.Components.Loadouts;
+using GamesByMalcs.Melvor2.Components.MagicSpells;
 using GamesByMalcs.Melvor2.Components.Inventories;
 using GamesByMalcs.Melvor2.Data.Currencies;
 using GamesByMalcs.Melvor2.Data.Items;
@@ -57,10 +58,21 @@ sealed class SimEngine
     /// <summary>Filled by the background thread; the mod drains it on the game's own thread.</summary>
     public readonly ConcurrentQueue<SimResult> Finished = new();
     public volatile bool Running;
-    public volatile int Done, Total;
+    public volatile int Total;
     public volatile string Current = "";
+    int _done;
+    public int Done => Volatile.Read(ref _done);
+
+    /// <summary>
+    /// Fights simulated side by side. Every fight is a game of its own, so they do not touch each other; half
+    /// of the processor is left to the game that is being played.
+    /// </summary>
+    public static int DefaultWorkers => Math.Clamp(System.Environment.ProcessorCount / 2, 1, 4);
 
     public SimEngine(Action<string> log) => _log = log;
+#if DEBUG
+    static WeakReference<Game>? s_lastSim;
+#endif
 
     public static bool IsSupported => s_loadState != null;
 
@@ -68,7 +80,7 @@ sealed class SimEngine
     /// Call on the game's thread. Has the game write its save the way its autosave does, takes that file as
     /// the snapshot and starts simulating the targets one after the other.
     /// </summary>
-    public bool Start(Game real, IReadOnlyList<SimTarget> targets, SimOptions options, out string error)
+    public bool Start(Game real, IReadOnlyList<SimTarget> targets, SimOptions options, int workers, out string error)
     {
         error = "";
         if (Running) { error = "A simulation is already running."; return false; }
@@ -84,25 +96,44 @@ sealed class SimEngine
         catch (Exception e) { error = "Could not take a snapshot of the character: " + e.Message; return false; }
 
         while (Finished.TryDequeue(out _)) { }
-        Done = 0;
+        Volatile.Write(ref _done, 0);
         Total = targets.Count;
         Current = "";
         Running = true;
         var cancel = _cancel = new CancellationTokenSource();
+        var waiting = new ConcurrentQueue<SimTarget>(targets);
+        workers = Math.Clamp(workers, 1, Math.Max(1, targets.Count));
         Task.Run(() =>
         {
             try
             {
-                foreach (SimTarget target in targets)
+                Task.WaitAll(Enumerable.Range(0, workers).Select(_ => Task.Run(() =>
                 {
-                    if (cancel.IsCancellationRequested) break;
-                    Current = target.Name;
-                    Finished.Enqueue(RunOne(save, target, options, cancel.Token));
-                    Done++;
-                }
+                    while (!cancel.IsCancellationRequested && waiting.TryDequeue(out SimTarget? target))
+                    {
+                        Current = target.Name;
+                        Finished.Enqueue(RunOne(save, target, options, cancel.Token));
+                        Interlocked.Increment(ref _done);
+                    }
+                })).ToArray());
             }
             catch (Exception e) { _log("The simulation stopped: " + e); }
-            finally { Running = false; }
+            finally
+            {
+#if DEBUG
+                long before = GC.GetTotalMemory(false);
+                long ws = Process.GetCurrentProcess().WorkingSet64;
+                GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                _log($"Dev: managed {before >> 20:N0} MB -> {GC.GetTotalMemory(false) >> 20:N0} MB after a full collection; process {ws >> 20:N0} MB -> {Process.GetCurrentProcess().WorkingSet64 >> 20:N0} MB; server GC {System.Runtime.GCSettings.IsServerGC}, latency {System.Runtime.GCSettings.LatencyMode}");
+                if (s_lastSim != null && s_lastSim.TryGetTarget(out Game? leaked))
+                {
+                    var clock = Stopwatch.StartNew();
+                    _log("Dev: the last copy is still alive; " + LeakProbe.Find(leaked) + $" ({clock.Elapsed.TotalSeconds:0.0}s)");
+                }
+                else _log("Dev: the last copy was collected.");
+#endif
+                Running = false;
+            }
         });
         return true;
     }
@@ -146,6 +177,10 @@ sealed class SimEngine
         {
             // The game releases its own Game objects the same way when a character is closed.
             try { sim?.Dispose(); } catch (Exception e) { _log("Releasing the copy failed: " + e.Message); }
+            try { if (sim != null) Unhook(sim); } catch (Exception e) { LogOnce("Letting go of the copy failed (the game was updated?): " + e.Message); }
+#if DEBUG
+            if (sim != null) s_lastSim = new WeakReference<Game>(sim);
+#endif
             result.RealMilliseconds = clock.Elapsed.TotalMilliseconds;
         }
         return result;
@@ -168,6 +203,7 @@ sealed class SimEngine
         var notes = new List<string>();
         Wear(sim, combat, bank, options, notes);
         if (target.StanceId != null) Stand(combat, target, notes);
+        Cast(combat, bank, options, notes);
         combat.Player.GlobalHealth.Set(combat.Player.GlobalHealth.Max);
         result.MaxHp = combat.Player.Health.Max;
         result.LowestHp = combat.Player.Health.Current;
@@ -333,6 +369,99 @@ sealed class SimEngine
         AttackStance? stance = weapon?.Stances.FirstOrDefault(s => s.Id == target.StanceId);
         if (weapon == null || stance == null) { notes.Add($"The stance {target.StanceName} is not available with this weapon."); return; }
         combat.Player.SetSelectedStance(weapon, stance);
+    }
+
+    // Selects the spell to fight with. With unlimited supplies the copy is handed its runes, so a spell the
+    // character cannot pay for right now can still be tried.
+    static void Cast(CombatEntity combat, BankEntity bank, SimOptions options, List<string> notes)
+    {
+        if (options.SpellId != null)
+        {
+            MagicSpell? spell = combat.MagicSpells.ActiveSpells.Keys.FirstOrDefault(s => s.Id == options.SpellId);
+            if (spell == null) { notes.Add("The spell no longer exists."); return; }
+            combat.MagicSpells.SelectSpell(spell);
+            if (combat.MagicSpells.SelectedSpell?.Data.Id != options.SpellId)
+            {
+                notes.Add($"{spell.DisplayName.Text} cannot be cast with this weapon.");
+                return;
+            }
+        }
+        if (!options.UnlimitedSupplies || combat.MagicSpells.SelectedSpell is not { } casting) return;
+        foreach (ItemQuantity rune in casting.RuneCosts)
+        {
+            int missing = rune.Quantity * 1000 - bank.Inventory.GetQuantity(rune.Item);
+            if (missing > 0) bank.Inventory.AddQuantity(rune.Item, missing, AddItemFlags.None);
+        }
+    }
+
+    // ---- letting a copy go ---------------------------------------------------------------------------------
+
+    // The game's settings live as long as the program, and the parts of a Game subscribe to their change
+    // events without ever unsubscribing. That is harmless for the one game that is played, but every copy made
+    // here would stay in memory for good (about 120 MB each). So the copy's handlers are taken off again.
+    const string SettingsNamespace = "GamesByMalcs.Melvor2.Settings";
+    const BindingFlags Any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+    static List<FieldInfo>? s_settingsRoots;
+    static readonly ConcurrentDictionary<Type, FieldInfo[]> s_settingsFields = new();
+    int _logged;
+
+    void LogOnce(string message)
+    {
+        if (Interlocked.Exchange(ref _logged, 1) == 0) _log(message);
+    }
+
+    static bool IsSettingsType(Type type) => type.Namespace is { } ns && ns.StartsWith(SettingsNamespace, StringComparison.Ordinal);
+
+    static FieldInfo[] SettingsFields(Type type) => s_settingsFields.GetOrAdd(type, static t =>
+    {
+        var fields = new List<FieldInfo>();
+        for (Type? at = t; at != null && at != typeof(object); at = at.BaseType)
+            fields.AddRange(at.GetFields(Any | BindingFlags.Instance).Where(f => typeof(Delegate).IsAssignableFrom(f.FieldType) || IsSettingsType(f.FieldType)));
+        return fields.ToArray();
+    });
+
+    /// <summary>Removes the copy's handlers from the events of the game's settings. Returns how many.</summary>
+    static int Unhook(Game sim)
+    {
+        s_settingsRoots ??= typeof(Game).Assembly.GetTypes()
+            .Where(t => IsSettingsType(t) && !t.ContainsGenericParameters)
+            .SelectMany(t => t.GetFields(Any | BindingFlags.Static))
+            .Where(f => !f.IsLiteral && IsSettingsType(f.FieldType))
+            .ToList();
+
+        var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var queue = new Queue<object>();
+        foreach (FieldInfo root in s_settingsRoots)
+            if (root.GetValue(null) is { } value && seen.Add(value)) queue.Enqueue(value);
+
+        int removed = 0;
+        while (queue.Count > 0)
+        {
+            object settings = queue.Dequeue();
+            foreach (FieldInfo field in SettingsFields(settings.GetType()))
+            {
+                object? value = field.GetValue(settings);
+                if (value is Delegate handlers)
+                {
+                    // The event's own "remove" is used: it is safe against another thread subscribing meanwhile.
+                    MethodInfo? remove = field.DeclaringType?.GetEvent(field.Name, Any | BindingFlags.Instance)?.GetRemoveMethod(true);
+                    if (remove == null) continue;
+                    foreach (Delegate handler in handlers.GetInvocationList())
+                        if (BelongsTo(handler.Target, sim)) { remove.Invoke(settings, [handler]); removed++; }
+                }
+                else if (value != null && seen.Add(value)) queue.Enqueue(value);
+            }
+        }
+        return removed;
+    }
+
+    // A handler is the copy's when it sits on the copy itself, on one of its entities, or on a part of one.
+    static bool BelongsTo(object? target, Game sim)
+    {
+        if (target == null) return false;
+        if (ReferenceEquals(target, sim)) return true;
+        GameEntity? entity = target as GameEntity ?? target.GetType().GetProperty("Entity", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(target) as GameEntity;
+        return entity != null && sim.Entities.TryGetObjectById(entity.Id, out GameEntity? mine) && ReferenceEquals(mine, entity);
     }
 
     // Farming and Ranching run on their own beside combat and use items from the same bank: left running,

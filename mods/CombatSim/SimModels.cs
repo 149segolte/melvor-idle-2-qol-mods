@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Serialization;
 
 namespace CombatSim;
 
@@ -10,10 +12,10 @@ sealed record SimTarget(string AreaId, string? EnemyId, string Name, string Area
     public string? StanceId { get; init; }
     public string StanceName { get; init; } = "";
 
-    public bool IsDungeon => EnemyId == null;
+    [JsonIgnore] public bool IsDungeon => EnemyId == null;
     /// <summary>The fight, whatever the stance.</summary>
-    public string FightKey => EnemyId == null ? AreaId : AreaId + "|" + EnemyId;
-    public string Key => StanceId == null ? FightKey : FightKey + "@" + StanceId;
+    [JsonIgnore] public string FightKey => EnemyId == null ? AreaId : AreaId + "|" + EnemyId;
+    [JsonIgnore] public string Key => StanceId == null ? FightKey : FightKey + "@" + StanceId;
 }
 
 sealed class SimOptions
@@ -28,6 +30,8 @@ sealed class SimOptions
     public string? LoadoutId;
     /// <summary>Equipment slot id -> item id to wear there instead ("" is nothing).</summary>
     public Dictionary<string, string> Overrides = new();
+    /// <summary>The spell to cast; null is the one that is selected already.</summary>
+    public string? SpellId;
     /// <summary>Identifies this equipment setup, and names it for people.</summary>
     public string SetupKey = "", SetupLabel = "";
 }
@@ -40,7 +44,7 @@ sealed class SimResult
 {
     public SimTarget Target = null!;
     public string SetupKey = "", SetupLabel = "";
-    public string Key => MakeKey(SetupKey, Target.Key);
+    [JsonIgnore] public string Key => MakeKey(SetupKey, Target.Key);
     public static string MakeKey(string setupKey, string targetKey) => setupKey + "#" + targetKey;
 
     /// <summary>Game hours that were actually simulated (less than asked when the fight could not go on).</summary>
@@ -58,14 +62,48 @@ sealed class SimResult
     public double RealMilliseconds;
 
     public double PerHour(double total) => Hours > 0 ? total / Hours : 0;
-    public double KillsPerHour => PerHour(Kills);
-    public double DeathsPerHour => PerHour(Deaths);
-    public double XpPerHour => PerHour(Xp.Values.Sum());
+    [JsonIgnore] public double KillsPerHour => PerHour(Kills);
+    [JsonIgnore] public double DeathsPerHour => PerHour(Deaths);
+    [JsonIgnore] public double XpPerHour => PerHour(Xp.Values.Sum());
     /// <summary>Coins dropped plus what the dropped items sell for.</summary>
-    public double GoldPerHour => PerHour(Loot.Sum(l => l.IsCurrency ? (l.Id == SimEngine.Gold ? l.Quantity : 0) : l.Quantity * l.SellsFor));
-    public double CoinsPerHour => PerHour(Loot.Where(l => l.IsCurrency && l.Id == SimEngine.Gold).Sum(l => l.Quantity));
-    public double LootValuePerHour => PerHour(Loot.Where(l => !l.IsCurrency).Sum(l => l.Quantity * l.SellsFor));
-    public double FoodPerHour => PerHour(FoodEaten);
-    public double LowestHpFraction => MaxHp > 0 ? (double)LowestHp / MaxHp : 1;
-    public double SecondsPerKill => Kills > 0 ? Hours * 3600 / Kills : 0;
+    [JsonIgnore] public double GoldPerHour => PerHour(Loot.Sum(l => l.IsCurrency ? (l.Id == SimEngine.Gold ? l.Quantity : 0) : l.Quantity * l.SellsFor));
+    [JsonIgnore] public double CoinsPerHour => PerHour(Loot.Where(l => l.IsCurrency && l.Id == SimEngine.Gold).Sum(l => l.Quantity));
+    [JsonIgnore] public double LootValuePerHour => PerHour(Loot.Where(l => !l.IsCurrency).Sum(l => l.Quantity * l.SellsFor));
+    [JsonIgnore] public double FoodPerHour => PerHour(FoodEaten);
+    [JsonIgnore] public double LowestHpFraction => MaxHp > 0 ? (double)LowestHp / MaxHp : 1;
+    [JsonIgnore] public double SecondsPerKill => Kills > 0 ? Hours * 3600 / Kills : 0;
+}
+
+/// <summary>An area or a dungeon that can be chosen in "Where".</summary>
+sealed record AreaChoice(string AreaId, string Name, string CategoryName, int Fights, bool IsDungeon, int MinLevel, int MaxLevel);
+
+/// <summary>
+/// One press of Simulate, kept so it can be looked at again without running it: what was asked and what came
+/// out. It stands on its own: the equipment and the unlocked areas may have changed since.
+/// </summary>
+sealed class Scan
+{
+    public string Id = "";
+    /// <summary>When it finished, in UTC.</summary>
+    public DateTime At;
+    public bool BestMode;
+    public string TrainSkillId = "", TrainSkillName = "";
+    /// <summary>The areas it covered, in words.</summary>
+    public string Where = "";
+    public double Hours;
+    public bool Unlimited;
+    public string SetupKey = "", SetupLabel = "";
+    /// <summary>Fights the run was asked for; more than the results when it was stopped.</summary>
+    public int Asked;
+    public List<SimResult> Results = new();
+
+    Dictionary<string, SimResult>? _byKey;
+    [JsonIgnore] public Dictionary<string, SimResult> ByKey => _byKey ??= Results.GroupBy(r => r.Key).ToDictionary(g => g.Key, g => g.Last());
+    [JsonIgnore] public bool Stopped => Results.Count < Asked;
+    [JsonIgnore] public int Fights => Results.Select(r => r.Target.FightKey).Distinct().Count();
+    [JsonIgnore] public string Title => BestMode ? "Best for " + (TrainSkillName == "" ? "combat XP" : TrainSkillName) : Where;
+
+    /// <summary>XP per hour as this scan ranked it.</summary>
+    public double Rank(SimResult r) => BestMode && TrainSkillId != "" ? r.PerHour(r.Xp.GetValueOrDefault(TrainSkillId)) : r.XpPerHour;
+    [JsonIgnore] public SimResult? Top => Results.Where(r => !r.Failed).OrderByDescending(Rank).FirstOrDefault();
 }

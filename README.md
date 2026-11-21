@@ -23,8 +23,9 @@ Take the ones you want. Each has a page of its own with pictures and details.
     <td>
       <h3><a href="mods/CombatSim">Combat Simulator</a></h3>
       What an hour of each fight gives, uses and risks, worked out by running the game's own combat on a
-      hidden copy of your character. Compare saved loadouts, swap any item in, find the best place to
-      train a skill, then start the fight with one click.
+      hidden copy of your character. Tick the areas to try, compare saved loadouts, items and spells,
+      find the best place to train a skill, look at earlier scans again, then start the fight with one
+      click.
     </td>
   </tr>
   <tr>

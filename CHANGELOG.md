@@ -2,6 +2,25 @@
 
 Every mod has a version of its own; this file lists the releases of the repository as a whole.
 
+## Combat Simulator 0.2.0
+
+- **Where** is a list you tick: one area, several, a whole category, or nothing for everything. "Best for"
+  uses it too, so a search can be kept to the areas you care about.
+- **Spells**: when the weapon casts spells, choose which one to fight with; two spells are compared like two
+  sets of equipment. With unlimited supplies the copy is handed the runes.
+- **History**: the last ten scans of a character are kept on disk and can be looked at again, table and
+  details, without simulating anything.
+- **Faster**: up to four fights are simulated side by side (about one and a half times as fast; `Workers` in
+  `settings.json` changes it).
+- **Fixed, important**: every simulated fight left about 120 MB of memory behind until the game was closed,
+  so a scan of everything could use tens of gigabytes. The game's settings kept each copy alive; the copy's
+  subscriptions are now removed when its fight is over. Measured: 152 fights now grow the game by under
+  1 GB, where 38 used to add 5 GB.
+- A weapon with a single attack stance is no longer simulated "per stance" in Best for, and such results are
+  shared between the two modes.
+- Dungeons were run for the first time (two dungeons, an hour each) and give sensible numbers.
+- The Fight button also selects the spell of the result, when the result was simulated with what is worn.
+
 ## 0.1.0
 
 First release. For Melvor Idle 2 0.11.6-alpha.1 with Melvor Mod Loader 0.1.3.

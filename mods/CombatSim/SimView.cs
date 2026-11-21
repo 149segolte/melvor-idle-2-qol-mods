@@ -13,17 +13,28 @@ sealed record GearSlot(string SlotId, string SlotName, int Column, int Row, stri
 /// <summary>An item that fits a slot.</summary>
 sealed record GearChoice(string ItemId, string Name, Texture2D? Icon, int Owned, bool CanWear);
 
+/// <summary>A spell the weapon of the setup can cast.</summary>
+sealed record SpellChoice(string Id, string Name, string Book, Texture2D? Icon);
+
 /// <summary>What the view shows and remembers; owned by the mod, so it survives a rebuild of the window.</summary>
 sealed class SimState
 {
     public List<SimTarget> Catalog = new();
-    /// <summary>Label and area id of every choice in "Where" ("" is everything).</summary>
-    public List<(string Label, string AreaId)> Scopes = new();
+    /// <summary>Every unlocked area and dungeon, in the game's order.</summary>
+    public List<AreaChoice> Areas = new();
     /// <summary>Results by <see cref="SimResult.Key"/>: one per equipment setup and fight.</summary>
     public Dictionary<string, SimResult> Results = new();
-    public string ScopeAreaId = "";
+    /// <summary>The areas chosen in "Where", one choice per mode; none chosen is every unlocked area.</summary>
+    public HashSet<string> FightAreas = new(), BestAreas = new();
+    public HashSet<string> ScopeAreas => BestMode ? BestAreas : FightAreas;
+    /// <summary>Earlier scans of this character, newest first.</summary>
+    public List<Scan> History = new();
+    /// <summary>An earlier scan that is on show instead of the current results.</summary>
+    public Scan? Viewing;
     public int Duration = 1;
     public bool Unlimited = true;
+    /// <summary>Fights simulated side by side.</summary>
+    public int Workers = 1;
 
     public List<(string Id, string Name)> Loadouts = new();
     public string LoadoutId = "";
@@ -32,6 +43,12 @@ sealed class SimState
     public List<GearSlot> Gear = new();
     /// <summary>The attack stances of the weapon in <see cref="Gear"/>.</summary>
     public List<(string Id, string Name)> Stances = new();
+    /// <summary>The spells that weapon can cast; empty when it casts none.</summary>
+    public List<SpellChoice> Spells = new();
+    /// <summary>The spell to fight with; "" is the one the loadout has selected.</summary>
+    public string SpellId = "";
+    /// <summary>What the "" choice stands for, in words.</summary>
+    public string SpellDefault = "";
 
     /// <summary>
     /// False: simulate the fights of one area. True: look for the best place to train, by trying every
@@ -57,43 +74,84 @@ sealed class SimState
     public static readonly (string Label, double Hours)[] Durations =
         { ("15 minutes", 0.25), ("1 hour", 1), ("4 hours", 4), ("12 hours", 12) };
 
-    public IEnumerable<SimTarget> InScope => BestMode ? Catalog : Catalog.Where(t => ScopeAreaId == "" || t.AreaId == ScopeAreaId);
+    public IEnumerable<SimTarget> InScope => ScopeAreas.Count == 0 ? Catalog : Catalog.Where(t => ScopeAreas.Contains(t.AreaId));
+
+    /// <summary>The chosen areas in words: one or two by name, more as a number.</summary>
+    public string ScopeLabel
+    {
+        get
+        {
+            var names = Areas.Where(a => ScopeAreas.Contains(a.AreaId)).Select(a => a.Name).ToList();
+            return names.Count switch
+            {
+                0 => "Every unlocked area",
+                1 => names[0],
+                2 => names[0] + ", " + names[1],
+                _ => $"{names.Count} areas",
+            };
+        }
+    }
+
+    /// <summary>Best mode tries every stance of the weapon, when it has more than one.</summary>
+    public bool PerStance => BestMode && Stances.Count > 1;
 
     /// <summary>What a run simulates: in best mode every fight once per stance.</summary>
     public List<SimTarget> ToSimulate()
     {
-        if (!BestMode || Stances.Count == 0) return InScope.ToList();
+        if (!PerStance) return InScope.ToList();
         return InScope.SelectMany(t => Stances.Select(s => t with { StanceId = s.Id, StanceName = s.Name })).ToList();
     }
 
-    /// <summary>XP per hour as the table ranks it: of the trained skill in best mode, all combat XP otherwise.</summary>
-    public double Xp(SimResult r) => BestMode && TrainSkillId != "" ? r.PerHour(r.Xp.GetValueOrDefault(TrainSkillId)) : r.XpPerHour;
+    // What is on show: the current choices, or those of the earlier scan that is being looked at.
+    public bool ShownBest => Viewing?.BestMode ?? BestMode;
+    public string ShownSkillId => Viewing != null ? Viewing.TrainSkillId : TrainSkillId;
+    public string ShownSkillName => Viewing != null ? Viewing.TrainSkillName : Skills.FirstOrDefault(k => k.Id == TrainSkillId).Name ?? "";
+    public string ShownSetupKey => Viewing?.SetupKey ?? SetupKey;
+    public string ShownSetupLabel => Viewing?.SetupLabel ?? SetupLabel;
+    public IReadOnlyDictionary<string, SimResult> ShownResults => Viewing != null ? Viewing.ByKey : Results;
 
-    /// <summary>The result to show for a fight: in best mode, the stance that trains the skill best.</summary>
-    public SimResult? Shown(SimTarget fight)
+    /// <summary>XP per hour as the table ranks it: of the trained skill in best mode, all combat XP otherwise.</summary>
+    public double Xp(SimResult r) => ShownBest && ShownSkillId != "" ? r.PerHour(r.Xp.GetValueOrDefault(ShownSkillId)) : r.XpPerHour;
+
+    /// <summary>The table's lines: one per fight; in best mode, the stance that trains the skill best.</summary>
+    public List<SimResult> Lines()
     {
-        if (!BestMode || Stances.Count == 0) return ResultFor(fight);
-        return Stances.Select(s => ResultFor(fight with { StanceId = s.Id, StanceName = s.Name }))
-            .Where(r => r != null).OrderByDescending(r => r!.Failed ? -1 : Xp(r)).FirstOrDefault();
+        IEnumerable<SimResult> pool;
+        if (Viewing != null) pool = Viewing.Results;
+        else
+        {
+            var fights = InScope.Select(t => t.FightKey).ToHashSet();
+            string setup = SetupKey;
+            // A fight tried per stance and the same fight in the stance of the moment are different runs.
+            bool perStance = PerStance;
+            pool = Results.Values.Where(r => r.SetupKey == setup && fights.Contains(r.Target.FightKey) && (r.Target.StanceId != null) == perStance);
+        }
+        if (!ShownBest) return pool.ToList();
+        return pool.GroupBy(r => r.Target.FightKey).Select(g => g.OrderByDescending(r => r.Failed ? -1 : Xp(r)).First()).ToList();
     }
 
-    public string SetupKey => LoadoutId + ";" + string.Join(",", Overrides.OrderBy(o => o.Key, StringComparer.Ordinal).Select(o => o.Key + "=" + o.Value));
+    public string SetupKey => LoadoutId + ";" + string.Join(",", Overrides.OrderBy(o => o.Key, StringComparer.Ordinal).Select(o => o.Key + "=" + o.Value))
+                              + (SpellId == "" ? "" : ";spell=" + SpellId);
     public string SetupLabel
     {
         get
         {
             string name = Loadouts.FirstOrDefault(l => l.Id == LoadoutId).Name ?? "Current equipment";
-            return Overrides.Count == 0 ? name : $"{name} + {Overrides.Count} {(Overrides.Count == 1 ? "change" : "changes")}";
+            if (Overrides.Count > 0) name += $" + {Overrides.Count} {(Overrides.Count == 1 ? "change" : "changes")}";
+            return SpellId == "" ? name : name + ", " + (Spells.FirstOrDefault(s => s.Id == SpellId)?.Name ?? "another spell");
         }
     }
 
-    public SimResult? ResultFor(SimTarget target) => Results.GetValueOrDefault(SimResult.MakeKey(SetupKey, target.Key));
+    /// <summary>The equipment simulated is what the character has on, item for item.</summary>
+    public bool IsWornSetup => Overrides.Count == 0 && SetupLabel.Contains("worn now");
+
 }
 
 /// <summary>Pictures, names and choices from the running game, looked up on the game's thread.</summary>
 interface ISimLookup
 {
     Texture2D? TargetIcon(SimTarget target);
+    Texture2D? AreaIcon(string areaId);
     Texture2D? AmountIcon(Amount amount);
     (string Name, Texture2D? Icon) Skill(string id);
     /// <summary>Every item of the game that fits the slot.</summary>
@@ -128,26 +186,29 @@ sealed class SimView
     readonly GameStyle _s;
     readonly SimState _state;
     readonly ISimLookup _lookup;
-    readonly Action _simulate, _cancel, _changed, _gearChanged, _rebuild;
+    readonly Action _simulate, _cancel, _changed, _gearChanged, _rebuild, _clearHistory;
     readonly Action<SimTarget> _fight;
     Button _fightButton = null!;
     Label _fightNote = null!;
     SimTarget? _fightTarget;
 
-    OptionButton _scope = null!, _duration = null!, _loadout = null!;
-    Button _unlimited = null!, _fromBank = null!, _go = null!, _reset = null!;
+    OptionButton _duration = null!, _loadout = null!;
+    OptionButton? _train, _spell;
+    Button _where = null!, _unlimited = null!, _fromBank = null!, _go = null!, _reset = null!, _historyButton = null!, _back = null!;
     Label _supplyHint = null!, _estimate = null!, _status = null!, _empty = null!, _showing = null!;
     ProgressBar _progress = null!;
-    VBoxContainer _rows = null!, _details = null!;
-    Control _gearHolder = null!;
+    VBoxContainer _rows = null!, _details = null!, _emptyBox = null!, _recent = null!;
+    Control _gearHolder = null!, _spellHolder = null!;
     PanelContainer? _picker;
+    string _pickerKind = "";
     readonly List<Button> _headers = new();
-    string _tableSignature = "", _detailsSignature = "";
+    string _tableSignature = "", _detailsSignature = "", _recentSignature = "";
 
     public SimView(GameWindow window, SimState state, ISimLookup lookup, Action simulate, Action cancel, Action changed, Action gearChanged, Action rebuild,
-        Action<SimTarget> fight)
+        Action<SimTarget> fight, Action clearHistory)
     {
         _fight = fight;
+        _clearHistory = clearHistory;
         _window = window; _s = window.Style; _state = state; _lookup = lookup;
         _simulate = simulate; _cancel = cancel; _changed = changed; _gearChanged = gearChanged; _rebuild = rebuild;
 
@@ -171,49 +232,39 @@ sealed class SimView
         // Two questions the window answers: "what does this area give me" and "where should I train".
         var modes = _s.Spaced(new HBoxContainer(), 4);
         var modeGroup = new ButtonGroup();
-        Button fights = Toggle("One area", modeGroup, "Simulate the fights of an area or a dungeon you choose");
-        Button best = Toggle("Best for", modeGroup, "Find the best place to train a skill: every unlocked fight is tried in every attack stance of your weapon");
+        Button fights = Toggle("Fights", modeGroup, "What the fights of the areas you choose give, use and risk");
+        Button best = Toggle("Best for", modeGroup, "Find the best place to train a skill: every fight of the areas you choose is tried in every attack stance of your weapon");
         fights.ButtonPressed = !_state.BestMode;
         best.ButtonPressed = _state.BestMode;
-        fights.Pressed += () => { if (_state.BestMode) { _state.BestMode = false; _state.Selected = null; _changed(); _rebuild(); } };
-        best.Pressed += () => { if (!_state.BestMode) { _state.BestMode = true; _state.Selected = null; _changed(); _rebuild(); } };
+        fights.Pressed += () => { if (_state.BestMode) { _state.BestMode = false; _state.Selected = null; _state.Viewing = null; _changed(); _rebuild(); } };
+        best.Pressed += () => { if (!_state.BestMode) { _state.BestMode = true; _state.Selected = null; _state.Viewing = null; _changed(); _rebuild(); } };
         modes.AddChild(fights);
         modes.AddChild(best);
         body.AddChild(modes);
 
-        _scope = _s.Dropdown();
-        _scope.ClipText = true;
         if (_state.BestMode)
         {
             body.AddChild(Caption("Train"));
-            _scope.TooltipText = "Fights are ranked by the experience they give in this skill";
-            _scope.AddItem("All combat XP");
-            foreach (var (_, name) in _state.Skills) _scope.AddItem(name);
-            _scope.Selected = Math.Max(0, _state.Skills.FindIndex(k => k.Id == _state.TrainSkillId) + 1);
-            _scope.ItemSelected += index =>
+            _train = _s.Dropdown();
+            _train.ClipText = true;
+            _train.TooltipText = "Fights are ranked by the experience they give in this skill";
+            _train.AddItem("All combat XP");
+            foreach (var (_, name) in _state.Skills) _train.AddItem(name);
+            _train.Selected = Math.Max(0, _state.Skills.FindIndex(k => k.Id == _state.TrainSkillId) + 1);
+            _train.ItemSelected += index =>
             {
                 _state.TrainSkillId = index == 0 ? "" : _state.Skills[(int)index - 1].Id;
-                _state.Selected = null;
-                _tableSignature = "";
+                ShowCurrent();
                 _changed();
                 Refresh();
             };
+            body.AddChild(_train);
         }
-        else
-        {
-            body.AddChild(Caption("Where"));
-            _scope.TooltipText = "An area simulates every enemy in it; a dungeon is simulated as a whole";
-            foreach (var (label, _) in _state.Scopes) _scope.AddItem(label);
-            _scope.Selected = Math.Max(0, _state.Scopes.FindIndex(s => s.AreaId == _state.ScopeAreaId));
-            _scope.ItemSelected += index =>
-            {
-                _state.ScopeAreaId = _state.Scopes[(int)index].AreaId;
-                _state.Selected = null;
-                _changed();
-                Refresh();
-            };
-        }
-        body.AddChild(_scope);
+
+        body.AddChild(Caption("Where"));
+        _where = WhereButton();
+        _where.Pressed += OpenAreas;
+        body.AddChild(_where);
 
         var timing = _s.Spaced(new HBoxContainer(), 6);
         var left = _s.Spaced(new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill }, 6);
@@ -252,6 +303,7 @@ sealed class SimView
         {
             _state.LoadoutId = _state.Loadouts[(int)index].Id;
             _state.Overrides.Clear();   // the changes were made to the other loadout's items
+            ShowCurrent();
             ClosePicker();
             _gearChanged();
             FillGear();
@@ -261,10 +313,12 @@ sealed class SimView
 
         _gearHolder = new CenterContainer { MouseFilter = Control.MouseFilterEnum.Pass };
         body.AddChild(_gearHolder);
+        _spellHolder = new MarginContainer { MouseFilter = Control.MouseFilterEnum.Pass };
+        body.AddChild(_spellHolder);
         _reset = _s.GameButton("Undo changes", "TexturedButton4x", 12);
         _reset.TooltipText = "Back to the loadout's own items";
         _reset.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
-        _reset.Pressed += () => { _state.Overrides.Clear(); ClosePicker(); _gearChanged(); FillGear(); Refresh(); };
+        _reset.Pressed += () => { _state.Overrides.Clear(); ShowCurrent(); ClosePicker(); _gearChanged(); FillGear(); Refresh(); };
         body.AddChild(_reset);
         Label food = Wrapped(_state.FoodLine, SetupWidth - 20, _state.FoodMissing ? Bad : GameStyle.TextGrey, 12);
         food.HorizontalAlignment = HorizontalAlignment.Center;
@@ -278,7 +332,7 @@ sealed class SimView
         body.AddChild(_estimate);
         _go = _s.GameButton("Simulate", "TexturedActionButtonGreen8x", 18);
         _go.CustomMinimumSize = new Vector2(0, _s.Px(44));
-        _go.Pressed += () => { ClosePicker(); if (_state.Running) _cancel(); else _simulate(); };
+        _go.Pressed += () => { ClosePicker(); if (_state.Running) _cancel(); else { ShowCurrent(); _simulate(); } };
         body.AddChild(_go);
         _progress = new ProgressBar { ShowPercentage = false, MinValue = 0, MaxValue = 1, Step = 0, CustomMinimumSize = new Vector2(0, _s.Px(6)), MouseFilter = Control.MouseFilterEnum.Ignore };
         _progress.AddThemeStyleboxOverride("background", new StyleBoxFlat { BgColor = new Color("41454c") });
@@ -296,6 +350,7 @@ sealed class SimView
     {
         foreach (Node old in _gearHolder.GetChildren()) old.QueueFree();
         _reset.Visible = _state.Overrides.Count > 0;
+        FillSpells();
         if (_state.Gear.Count == 0) return;
 
         int minColumn = _state.Gear.Min(g => g.Column), minRow = _state.Gear.Min(g => g.Row);
@@ -312,6 +367,44 @@ sealed class SimView
                 grid.AddChild(BuildSlot(slot, size));
             }
         _gearHolder.AddChild(grid);
+    }
+
+    // Only there when the weapon of the setup casts spells: which one to fight with.
+    void FillSpells()
+    {
+        foreach (Node old in _spellHolder.GetChildren()) old.QueueFree();
+        _spell = null;
+        _spellHolder.Visible = _state.Spells.Count > 0;
+        if (_state.Spells.Count == 0) return;
+
+        var row = _s.Spaced(new HBoxContainer(), 8);
+        row.AddChild(Caption("Spell"));
+        OptionButton spell = _spell = _s.Dropdown();
+        spell.ClipText = true;
+        spell.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        spell.TooltipText = "The spell to fight with. Simulate two of them to compare.";
+        spell.AddThemeConstantOverride("icon_max_width", _s.Px(16));
+        spell.GetPopup().AddThemeConstantOverride("icon_max_width", _s.Px(20));
+        spell.AddItem(_state.SpellDefault);
+        spell.SetItemMetadata(0, "");
+        string book = "";
+        foreach (SpellChoice choice in _state.Spells)
+        {
+            if (choice.Book != book) { book = choice.Book; spell.AddSeparator(book); }
+            if (choice.Icon != null) spell.AddIconItem(choice.Icon, choice.Name); else spell.AddItem(choice.Name);
+            spell.SetItemMetadata(spell.ItemCount - 1, choice.Id);
+        }
+        for (int i = 0; i < spell.ItemCount; i++)
+            if (!spell.IsItemSeparator(i) && spell.GetItemMetadata(i).AsString() == _state.SpellId) spell.Selected = i;
+        spell.ItemSelected += index =>
+        {
+            _state.SpellId = spell.GetItemMetadata((int)index).AsString();
+            ShowCurrent();
+            Refresh();
+        };
+        spell.Disabled = _state.Running;
+        row.AddChild(spell);
+        _spellHolder.AddChild(row);
     }
 
     Control BuildSlot(GearSlot slot, int size)
@@ -356,31 +449,318 @@ sealed class SimView
 
     // ---- the item picker: every item of the game that fits the slot ---------------------------------------
 
+    // One small panel at a time floats next to the window: the items of a slot, the areas, the earlier scans.
     void ClosePicker()
     {
         if (_picker != null && GodotObject.IsInstanceValid(_picker)) _picker.QueueFree();
         _picker = null;
+        _pickerKind = "";
     }
 
-    void OpenPicker(GearSlot slot, Control anchor)
+    /// <summary>Starts a floating panel with a title and a close button; returns the column to fill.</summary>
+    VBoxContainer StartPicker(string kind, string title, float width, float height)
     {
         ClosePicker();
-        if (_state.Running) return;
-        const float width = 330, height = 470;
+        _pickerKind = kind;
         var panel = _picker = new PanelContainer { CustomMinimumSize = new Vector2(_s.Px(width), _s.Px(height)), ZIndex = 10 };
         panel.AddThemeStyleboxOverride("panel", _s.WindowPanel());
         var column = _s.Spaced(new VBoxContainer(), 6);
         panel.AddChild(column);
 
         var head = _s.Spaced(new HBoxContainer(), 6);
-        Label title = _s.Text(slot.SlotName, GameStyle.TextWhite, 16, GameStyle.Bold);
-        title.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-        head.AddChild(title);
+        Label name = _s.Text(title, GameStyle.TextWhite, 16, GameStyle.Bold);
+        name.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        head.AddChild(name);
         Button close = _s.GameButton("X", "TexturedButtonCancel2x", 14);
         close.CustomMinimumSize = new Vector2(_s.Px(24), _s.Px(24));
         close.Pressed += ClosePicker;
         head.AddChild(close);
         column.AddChild(head);
+        return column;
+    }
+
+    /// <summary>Shows the panel next to (or under) what opened it, kept on the screen.</summary>
+    void PlacePicker(Control anchor, float width, float height, bool below = false)
+    {
+        if (_picker is not { } panel) return;
+        _window.Layer.AddChild(panel);
+        Vector2 screen = panel.GetViewportRect().Size, size = new(_s.Px(width), _s.Px(height));
+        Vector2 at = below
+            ? anchor.GlobalPosition + new Vector2(anchor.Size.X - size.X, anchor.Size.Y + _s.Px(6))
+            : anchor.GlobalPosition + new Vector2(anchor.Size.X + _s.Px(10), -_s.Px(60));
+        panel.Position = new Vector2(Math.Clamp(at.X, 0, Math.Max(0, screen.X - size.X)), Math.Clamp(at.Y, 0, Math.Max(0, screen.Y - size.Y)));
+    }
+
+    // ---- where to fight: any number of areas ---------------------------------------------------------------
+
+    // Looks like the drop-downs next to it, but opens a list in which several areas can be ticked.
+    Button WhereButton()
+    {
+        var button = new Button
+        {
+            ThemeTypeVariation = "OptionButton", ClipText = true, Alignment = HorizontalAlignment.Left,
+            IconAlignment = HorizontalAlignment.Right, SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+            FocusMode = Control.FocusModeEnum.None, MouseDefaultCursorShape = Control.CursorShape.PointingHand,
+            TooltipText = "Choose one area, several, or all of them. An area simulates every enemy in it; a dungeon is simulated as a whole.",
+        };
+        if (GameStyle.Load<Theme>("res://Assets/Styles/Themes/custom_dropdown_1.tres") is { } theme)
+        {
+            button.Theme = theme;
+            if (theme.HasIcon("arrow", "OptionButton")) button.Icon = theme.GetIcon("arrow", "OptionButton");
+        }
+        if (GameStyle.SemiBold is { } font) button.AddThemeFontOverride("font", font);
+        button.AddThemeFontSizeOverride("font_size", _s.Px(12));
+        return button;
+    }
+
+    void OpenAreas()
+    {
+        bool wasOpen = _pickerKind == "areas";
+        ClosePicker();
+        if (wasOpen || _state.Running) return;   // the button is a switch
+        const float width = 350, height = 500;
+        VBoxContainer column = StartPicker("areas", "Where to fight", width, height);
+        HashSet<string> chosen = _state.ScopeAreas;
+
+        var search = new LineEdit { PlaceholderText = "Search areas...", ClearButtonEnabled = true };
+        search.AddThemeFontSizeOverride("font_size", _s.Px(14));
+        column.AddChild(search);
+
+        Button everything = Toggle("Every unlocked area", null, "Nothing ticked means everything: new areas are included as you unlock them");
+        column.AddChild(everything);
+
+        var scroll = new ScrollContainer { SizeFlagsVertical = Control.SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        var list = _s.Spaced(new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill }, 2);
+        scroll.AddChild(list);
+        column.AddChild(scroll);
+        Label none = _s.Text("No area matches.", GameStyle.TextGrey, 13);
+        none.HorizontalAlignment = HorizontalAlignment.Center;
+        none.Visible = false;
+        column.AddChild(none);
+
+        var foot = _s.Spaced(new HBoxContainer(), 8);
+        Label summary = _s.Text("", GameStyle.TextGrey, 12);
+        summary.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        summary.ClipText = true;
+        foot.AddChild(summary);
+        Button done = _s.GameButton("Done", "TexturedButton4x", 13);
+        done.Pressed += ClosePicker;
+        foot.AddChild(done);
+        column.AddChild(foot);
+
+        var rows = new List<(Button Row, AreaChoice Area)>();
+        var headers = new List<(Button Header, string Category)>();
+
+        void Sync()
+        {
+            foreach (var (row, area) in rows) row.SetPressedNoSignal(chosen.Contains(area.AreaId));
+            everything.SetPressedNoSignal(chosen.Count == 0);
+            int fights = _state.Areas.Where(a => chosen.Count == 0 || chosen.Contains(a.AreaId)).Sum(a => a.Fights);
+            summary.Text = chosen.Count == 0 ? $"Everything  ·  {fights} fights"
+                : $"{chosen.Count} {(chosen.Count == 1 ? "area" : "areas")}  ·  {fights} {(fights == 1 ? "fight" : "fights")}";
+        }
+
+        void Changed()
+        {
+            Sync();
+            ShowCurrent();
+            _changed();
+            Refresh();
+        }
+
+        everything.Pressed += () => { chosen.Clear(); Changed(); };
+
+        foreach (var category in _state.Areas.GroupBy(a => a.CategoryName))
+        {
+            // The heading ticks or clears its whole category.
+            var header = new Button
+            {
+                Text = category.Key, Flat = true, Alignment = HorizontalAlignment.Left, FocusMode = Control.FocusModeEnum.None,
+                MouseDefaultCursorShape = Control.CursorShape.PointingHand,
+                TooltipText = $"Tick or clear all of {category.Key}",
+            };
+            header.AddThemeFontSizeOverride("font_size", _s.Px(12));
+            if (GameStyle.SemiBold is { } font) header.AddThemeFontOverride("font", font);
+            foreach (string name in new[] { "font_color", "font_hover_color", "font_pressed_color", "font_focus_color" })
+                header.AddThemeColorOverride(name, name == "font_hover_color" ? GameStyle.TextWhite : GameStyle.TextGold);
+            var members = category.Select(a => a.AreaId).ToList();
+            header.Pressed += () =>
+            {
+                if (members.All(chosen.Contains)) foreach (string id in members) chosen.Remove(id);
+                else foreach (string id in members) chosen.Add(id);
+                Changed();
+            };
+            list.AddChild(header);
+            headers.Add((header, category.Key));
+
+            foreach (AreaChoice area in category)
+            {
+                string note = area.IsDungeon ? "Dungeon"
+                    : $"{area.Fights} {(area.Fights == 1 ? "fight" : "fights")}  ·  Lv {(area.MinLevel == area.MaxLevel ? area.MinLevel.ToString() : area.MinLevel + "-" + area.MaxLevel)}";
+                Button row = PickerRow(area.Name, _lookup.AreaIcon(area.AreaId), note, GameStyle.TextWhite, null);
+                row.ToggleMode = true;
+                row.Toggled += on =>
+                {
+                    if (on) chosen.Add(area.AreaId); else chosen.Remove(area.AreaId);
+                    Changed();
+                };
+                list.AddChild(row);
+                rows.Add((row, area));
+            }
+        }
+
+        search.TextChanged += _ =>
+        {
+            string text = search.Text.Trim();
+            foreach (var (row, area) in rows)
+                row.Visible = text == "" || area.Name.Contains(text, StringComparison.OrdinalIgnoreCase) || area.CategoryName.Contains(text, StringComparison.OrdinalIgnoreCase);
+            foreach (var (header, category) in headers) header.Visible = rows.Any(r => r.Area.CategoryName == category && r.Row.Visible);
+            none.Visible = rows.All(r => !r.Row.Visible);
+        };
+
+        Sync();
+        PlacePicker(_where, width, height);
+        search.GrabFocus();
+    }
+
+    // ---- earlier scans --------------------------------------------------------------------------------------
+
+    /// <summary>Back from an earlier scan to the current results.</summary>
+    void ShowCurrent()
+    {
+        _state.Selected = null;
+        _state.Pinned = false;
+        _tableSignature = "";
+        if (_state.Viewing == null) return;
+        _state.Viewing = null;
+        _detailsSignature = "";
+    }
+
+    void Show(Scan scan)
+    {
+        _state.Viewing = scan;
+        _state.Selected = null;
+        _state.Pinned = false;
+        // An earlier scan is ranked the way it was asked: best first.
+        _state.SortColumn = 1;
+        _state.SortDescending = true;
+        _tableSignature = _detailsSignature = "";
+        ClosePicker();
+        Refresh();
+    }
+
+    void OpenHistory()
+    {
+        bool wasOpen = _pickerKind == "history";
+        ClosePicker();
+        if (wasOpen) return;
+        const float width = 400;
+        int shown = Math.Clamp(_state.History.Count, 1, 6);
+        float height = 104 + shown * 69;
+        VBoxContainer column = StartPicker("history", "Earlier scans", width, height);
+
+        if (_state.History.Count == 0)
+        {
+            Label nothing = Wrapped("Nothing yet. Every simulation you run is kept here, the last " + SimHistory.Kept + " of them, so you can look at it again without waiting.", width - 30, GameStyle.TextGrey, 13);
+            nothing.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+            column.AddChild(nothing);
+        }
+        else
+        {
+            var scroll = new ScrollContainer { SizeFlagsVertical = Control.SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+            var list = _s.Spaced(new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill }, 3);
+            scroll.AddChild(list);
+            column.AddChild(scroll);
+            foreach (Scan scan in _state.History) list.AddChild(ScanRow(scan));
+
+            var foot = _s.Spaced(new HBoxContainer(), 8);
+            Label kept = Wrapped($"The last {SimHistory.Kept} are kept. Old numbers: your character has moved on since.", width - 110, GameStyle.TextDim, 11);
+            kept.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            foot.AddChild(kept);
+            Button clear = _s.GameButton("Clear", "TexturedButton4x", 12);
+            clear.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
+            clear.TooltipText = "Forget every earlier scan of this character";
+            bool sure = false;
+            clear.Pressed += () =>
+            {
+                if (!sure) { sure = true; clear.Text = "Really?"; return; }
+                ShowCurrent();
+                _clearHistory();
+                ClosePicker();
+                Refresh();
+            };
+            foot.AddChild(clear);
+            column.AddChild(foot);
+        }
+        PlacePicker(_historyButton, width, height, below: true);
+    }
+
+    // "Best for Ranged                      2 h ago"
+    // "Every unlocked area · 1 hour · Loadout 1"
+    // "Top: Scarecrow 4,188 XP/h           126 fights"
+    Button ScanRow(Scan scan)
+    {
+        var row = new Button
+        {
+            ThemeTypeVariation = "OutlineToggleButton", CustomMinimumSize = new Vector2(0, _s.Px(66)),
+            FocusMode = Control.FocusModeEnum.None, MouseDefaultCursorShape = Control.CursorShape.PointingHand,
+            ToggleMode = true, ButtonPressed = ReferenceEquals(_state.Viewing, scan),
+            TooltipText = $"{scan.At.ToLocalTime():d MMM yyyy, HH:mm}\n{scan.Where}\nwith {scan.SetupLabel}",
+        };
+        row.Pressed += () => Show(scan);
+        var lines = _s.Spaced(new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore }, -1);
+        lines.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect, Control.LayoutPresetMode.Minsize, _s.Px(8));
+        row.AddChild(lines);
+
+        Control Line(string left, Color leftColor, int leftSize, Font? leftFont, string right, Color rightColor)
+        {
+            var line = _s.Spaced(new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore }, 8);
+            Label a = _s.Text(left, leftColor, leftSize, leftFont);
+            a.ClipText = true;
+            a.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            a.MouseFilter = Control.MouseFilterEnum.Ignore;
+            line.AddChild(a);
+            if (right != "")
+            {
+                Label b = _s.Text(right, rightColor, 12);
+                b.MouseFilter = Control.MouseFilterEnum.Ignore;
+                line.AddChild(b);
+            }
+            return line;
+        }
+
+        string duration = SimState.Durations.FirstOrDefault(d => Math.Abs(d.Hours - scan.Hours) < 1e-6).Label ?? $"{scan.Hours:0.##} h";
+        string what = (scan.BestMode ? scan.Where + "  ·  " : "") + duration + (scan.Unlimited ? "" : ", from bank") + "  ·  " + scan.SetupLabel;
+        SimResult? top = scan.Top;
+        string best = top == null ? "Nothing could be fought"
+            : $"Top: {top.Target.Name}{(top.Target.StanceName != "" ? " (" + top.Target.StanceName + ")" : "")}  {Fmt(scan.Rank(top))} XP/h";
+        int fights = scan.Fights;
+        lines.AddChild(Line(scan.Title, GameStyle.TextWhite, 14, GameStyle.SemiBold, Ago(scan.At), GameStyle.TextGrey));
+        lines.AddChild(Line(what, GameStyle.TextGrey, 12, null, "", GameStyle.TextGrey));
+        lines.AddChild(Line(best, GameStyle.TextPaper, 12, null, $"{fights} {(fights == 1 ? "fight" : "fights")}{(scan.Stopped ? ", stopped" : "")}", GameStyle.TextDim));
+        return row;
+    }
+
+    static string Ago(DateTime utc)
+    {
+        TimeSpan age = DateTime.UtcNow - utc;
+        DateTime local = utc.ToLocalTime();
+        return age.TotalMinutes < 1 ? "just now"
+            : age.TotalMinutes < 60 ? $"{(int)age.TotalMinutes} min ago"
+            : age.TotalHours < 12 ? $"{(int)age.TotalHours} h ago"
+            : local.Date == DateTime.Now.Date ? $"today {local:HH:mm}"
+            : local.Date == DateTime.Now.Date.AddDays(-1) ? $"yesterday {local:HH:mm}"
+            : local.ToString("d MMM, HH:mm");
+    }
+
+    // ---- the item picker: every item of the game that fits the slot ---------------------------------------
+
+    void OpenPicker(GearSlot slot, Control anchor)
+    {
+        ClosePicker();
+        if (_state.Running) return;
+        const float width = 330, height = 470;
+        VBoxContainer column = StartPicker("items", slot.SlotName, width, height);
 
         var search = new LineEdit { PlaceholderText = "Search items...", ClearButtonEnabled = true };
         search.AddThemeFontSizeOverride("font_size", _s.Px(14));
@@ -402,6 +782,7 @@ sealed class SimView
         {
             if (itemId == null) _state.Overrides.Remove(slot.SlotId);   // back to the loadout's own
             else _state.Overrides[slot.SlotId] = itemId;
+            ShowCurrent();
             ClosePicker();
             _gearChanged();
             FillGear();
@@ -438,22 +819,18 @@ sealed class SimView
         search.TextChanged += _ => Filter();
         ownedOnly.Toggled += _ => Filter();
 
-        _window.Layer.AddChild(panel);
-        // Next to the slot that was clicked, kept on the screen.
-        Vector2 screen = panel.GetViewportRect().Size, size = new(_s.Px(width), _s.Px(height));
-        Vector2 at = anchor.GlobalPosition + new Vector2(anchor.Size.X + _s.Px(10), -_s.Px(60));
-        panel.Position = new Vector2(Math.Clamp(at.X, 0, Math.Max(0, screen.X - size.X)), Math.Clamp(at.Y, 0, Math.Max(0, screen.Y - size.Y)));
+        PlacePicker(anchor, width, height);
         search.GrabFocus();
     }
 
-    Button PickerRow(string name, Texture2D? icon, string right, Color tint, Action chosen)
+    Button PickerRow(string name, Texture2D? icon, string right, Color tint, Action? chosen)
     {
         var row = new Button
         {
             ThemeTypeVariation = "OutlineToggleButton", CustomMinimumSize = new Vector2(0, _s.Px(32)),
             FocusMode = Control.FocusModeEnum.None, MouseDefaultCursorShape = Control.CursorShape.PointingHand,
         };
-        row.Pressed += chosen;
+        if (chosen != null) row.Pressed += chosen;
         var line = _s.Spaced(new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore }, 6);
         line.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect, Control.LayoutPresetMode.Minsize, _s.Px(6));
         row.AddChild(line);
@@ -476,14 +853,26 @@ sealed class SimView
 
     Control BuildResults()
     {
-        float width = 250 + Columns.Sum(c => c.Width + 6) + 30;
+        float width = (_state.PerStance ? 320 : 250) + Columns.Sum(c => c.Width + 6) + 30;
         Control column = _s.Column("Results, per hour", out VBoxContainer body, width);
         column.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
 
+        // What the table shows, and the way to the earlier scans.
+        var top = _s.Spaced(new HBoxContainer(), 6);
         _showing = _s.Text("", GameStyle.TextGrey, 12);
-        _showing.HorizontalAlignment = HorizontalAlignment.Center;
-        _showing.MouseFilter = Control.MouseFilterEnum.Ignore;
-        body.AddChild(_showing);
+        _showing.ClipText = true;
+        _showing.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        _showing.MouseFilter = Control.MouseFilterEnum.Pass;
+        top.AddChild(_showing);
+        _back = _s.GameButton("Back to now", "TexturedButton4x", 12);
+        _back.TooltipText = "Leave this earlier scan and show the current results";
+        _back.Pressed += () => { ShowCurrent(); ClosePicker(); Refresh(); };
+        top.AddChild(_back);
+        _historyButton = _s.GameButton("History", "TexturedButton4x", 12);
+        _historyButton.TooltipText = "Look at an earlier scan again, without simulating anything";
+        _historyButton.Pressed += OpenHistory;
+        top.AddChild(_historyButton);
+        body.AddChild(top);
 
         var header = _s.Spaced(new HBoxContainer(), 6);
         var headerMargin = new MarginContainer();
@@ -504,11 +893,19 @@ sealed class SimView
         scroll.AddChild(_rows);
         body.AddChild(scroll);
 
+        // Nothing to show yet: say what to do, and offer the last scans right here.
+        _emptyBox = _s.Spaced(new VBoxContainer { SizeFlagsVertical = Control.SizeFlags.ExpandFill, Alignment = BoxContainer.AlignmentMode.Center }, 10);
         _empty = Wrapped("", width - 60, GameStyle.TextGrey, 14);
         _empty.HorizontalAlignment = HorizontalAlignment.Center;
         _empty.VerticalAlignment = VerticalAlignment.Center;
-        _empty.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
-        body.AddChild(_empty);
+        _emptyBox.AddChild(_empty);
+        _recent = _s.Spaced(new VBoxContainer(), 3);
+        var recentMargin = new MarginContainer();
+        recentMargin.AddThemeConstantOverride("margin_left", _s.Px(40));
+        recentMargin.AddThemeConstantOverride("margin_right", _s.Px(40));
+        recentMargin.AddChild(_recent);
+        _emptyBox.AddChild(recentMargin);
+        body.AddChild(_emptyBox);
         return column;
     }
 
@@ -538,7 +935,7 @@ sealed class SimView
 
     void FillRows()
     {
-        var results = _state.InScope.Select(_state.Shown).Where(r => r != null).Select(r => r!).ToList();
+        var results = _state.Lines();
         IEnumerable<SimResult> sorted = _state.SortColumn < 0
             ? results.OrderBy(r => r.Target.Name, StringComparer.OrdinalIgnoreCase)
             : results.OrderBy(r => r.Failed ? double.MinValue : Columns[_state.SortColumn].Value(r));
@@ -548,14 +945,14 @@ sealed class SimView
         {
             // The XP column says whose experience it is.
             if (header.GetMeta("column").AsInt32() == 1)
-                header.Text = _state.BestMode && _state.TrainSkillId != "" ? _state.Skills.FirstOrDefault(k => k.Id == _state.TrainSkillId).Name ?? "XP" : "XP";
+                header.Text = _state.ShownBest && _state.ShownSkillName != "" ? _state.ShownSkillName : "XP";
             bool active = header.GetMeta("column").AsInt32() == _state.SortColumn;
             Color color = active ? GameStyle.TextGold : GameStyle.TextGrey;
             foreach (string name in new[] { "font_color", "font_hover_color", "font_pressed_color", "font_focus_color" })
                 header.AddThemeColorOverride(name, color);
         }
 
-        string signature = _state.SetupKey + "#" + _state.BestMode + _state.TrainSkillId + "#" + string.Join("|", ordered.Select(r => r.Target.Key + r.RealMilliseconds)) + "#" + _state.Selected + "#" + _state.SortColumn + _state.SortDescending;
+        string signature = _state.Viewing?.Id + "#" + _state.ShownSetupKey + "#" + _state.ShownBest + _state.ShownSkillId + "#" + string.Join("|", ordered.Select(r => r.Target.Key + r.RealMilliseconds)) + "#" + _state.Selected + "#" + _state.SortColumn + _state.SortDescending;
         if (signature != _tableSignature)
         {
             _tableSignature = signature;
@@ -571,16 +968,42 @@ sealed class SimView
 
         bool any = ordered.Count > 0;
         _rows.GetParent<Control>().Visible = any;
-        _empty.Visible = !any;
-        _showing.Text = _state.BestMode
-            ? $"Best stance for each fight, with: {_state.SetupLabel}"
-            : "With: " + _state.SetupLabel;
+        _emptyBox.Visible = !any;
+        if (_state.Viewing is { } scan)
+        {
+            _showing.Text = $"Earlier scan, {Ago(scan.At)}:  {scan.Title}  ·  {scan.SetupLabel}";
+            _showing.TooltipText = $"{scan.At.ToLocalTime():d MMM yyyy, HH:mm}. These numbers are from then: your levels and equipment may have changed.";
+        }
+        else
+        {
+            _showing.Text = _state.PerStance ? $"Best stance for each fight, with: {_state.SetupLabel}" : "With: " + _state.SetupLabel;
+            _showing.TooltipText = "";
+        }
+        _showing.AddThemeColorOverride("font_color", _state.Viewing != null ? GameStyle.TextGold : GameStyle.TextGrey);
+        _back.Visible = _state.Viewing != null;
+        _historyButton.Text = _state.History.Count > 0 ? $"History ({_state.History.Count})" : "History";
+
         bool otherSetups = _state.Results.Values.Any(r => r.SetupKey != _state.SetupKey);
         _empty.Text = _state.Running ? "Simulating..." : _state.Catalog.Count == 0
             ? "No area is unlocked yet."
             : otherSetups ? "Nothing simulated with this equipment yet.\n\nPress Simulate to compare it with what you ran before."
-            : _state.BestMode ? "Choose the skill you want to train on the left, then press Simulate.\n\nEvery unlocked fight is tried in each attack stance of your weapon, and the fights are ranked by what they give that skill."
+            : _state.BestMode ? "Choose the skill you want to train and where on the left, then press Simulate.\n\nEvery fight is tried in each attack stance of your weapon, and the fights are ranked by what they give that skill."
             : "Choose where to fight and with which equipment on the left, then press Simulate.\n\nEvery fight is run with the game's own combat, on a hidden copy of your character. Nothing is saved.";
+
+        // The last scans, one click away, while there is nothing else to look at.
+        string recent = any || _state.Running ? "" : string.Join("|", _state.History.Take(3).Select(h => h.Id));
+        if (recent != _recentSignature)
+        {
+            _recentSignature = recent;
+            foreach (Node old in _recent.GetChildren()) old.QueueFree();
+            if (recent != "")
+            {
+                Label caption = _s.Text("Or look at an earlier scan", GameStyle.TextDim, 12);
+                caption.HorizontalAlignment = HorizontalAlignment.Center;
+                _recent.AddChild(caption);
+                foreach (Scan earlier in _state.History.Take(3)) _recent.AddChild(ScanRow(earlier));
+            }
+        }
     }
 
     Control BuildRow(SimResult result, ButtonGroup group)
@@ -663,11 +1086,12 @@ sealed class SimView
 
     void FillDetails()
     {
-        SimResult? r = _state.Selected != null ? _state.Results.GetValueOrDefault(SimResult.MakeKey(_state.SetupKey, _state.Selected)) : null;
+        var shown = _state.ShownResults;
+        SimResult? r = _state.Selected != null ? shown.GetValueOrDefault(SimResult.MakeKey(_state.ShownSetupKey, _state.Selected)) : null;
         var others = r == null ? new List<SimResult>()
-            : _state.Results.Values.Where(o => o.Target.Key == r.Target.Key && o.SetupKey != r.SetupKey && !o.Failed).ToList();
-        string signature = r == null ? "none" : r.Key + r.RealMilliseconds + _state.TrainSkillId + "/" + string.Join(",", others.Select(o => o.Key + o.RealMilliseconds))
-            + "/" + _state.Results.Values.Count(o => o.SetupKey == r.SetupKey && o.Target.FightKey == r.Target.FightKey);
+            : shown.Values.Where(o => o.Target.Key == r.Target.Key && o.SetupKey != r.SetupKey && !o.Failed).ToList();
+        string signature = r == null ? "none" : _state.Viewing?.Id + r.Key + r.RealMilliseconds + _state.ShownSkillId + "/" + string.Join(",", others.Select(o => o.Key + o.RealMilliseconds))
+            + "/" + shown.Values.Count(o => o.SetupKey == r.SetupKey && o.Target.FightKey == r.Target.FightKey && o.Target.StanceId != null);
         // The button follows the selection even when the list itself did not change.
         _fightTarget = r is { Failed: false } ? r.Target : null;
         _fightButton.Visible = _fightTarget != null;
@@ -676,9 +1100,15 @@ sealed class SimView
         {
             _fightButton.Text = "Fight " + _fightTarget.Name;
             _fightButton.TooltipText = _fightTarget.IsDungeon ? $"Enter {_fightTarget.Name} now" : $"Start fighting {_fightTarget.Name} in {_fightTarget.AreaName} now";
-            _fightNote.Text = _state.Overrides.Count > 0 || !_state.SetupLabel.Contains("worn now")
+            _fightNote.Text = _state.Viewing != null
+                ? "Starts with what you are wearing now. These numbers are from an earlier scan."
+                : !_state.IsWornSetup
                 ? "Starts with what you are wearing now, not the equipment simulated here."
-                : _fightTarget.StanceName != "" ? $"Switches to the {_fightTarget.StanceName} stance." : "";
+                : string.Join(" ", new[]
+                {
+                    _fightTarget.StanceName != "" ? $"Switches to the {_fightTarget.StanceName} stance." : "",
+                    _state.SpellId != "" ? $"Selects {_state.Spells.FirstOrDefault(s => s.Id == _state.SpellId)?.Name ?? "the spell"}." : "",
+                }.Where(t => t != ""));
             _fightNote.Visible = _fightNote.Text != "";
         }
         if (signature == _detailsSignature) return;
@@ -710,7 +1140,8 @@ sealed class SimView
         if (r.Failed) return;
 
         // The same fight in the other stances of the weapon.
-        var stances = _state.Results.Values.Where(o => o.SetupKey == r.SetupKey && o.Target.FightKey == r.Target.FightKey && o.Target.Key != r.Target.Key && !o.Failed).ToList();
+        var stances = r.Target.StanceId == null ? new List<SimResult>()
+            : shown.Values.Where(o => o.SetupKey == r.SetupKey && o.Target.FightKey == r.Target.FightKey && o.Target.Key != r.Target.Key && o.Target.StanceId != null && !o.Failed).ToList();
         if (stances.Count > 0)
         {
             _details.AddChild(_s.Section("Other stances"));
@@ -838,14 +1269,18 @@ sealed class SimView
             ? "Never runs out: what a fight gives and uses while you keep it supplied."
             : "Uses your bank: how far your food, ammo and runes get you.";
         // A copy of the character takes about a second per fight; the fighting itself is the small part.
-        double seconds = fights * (1.25 + 0.25 * hours);
+        // Fights run side by side share the processor with the game: four of them are worth about one and a half.
+        double seconds = 1 + fights * (1.0 + 0.2 * hours) / (1 + 0.15 * (Math.Max(1, Math.Min(_state.Workers, fights)) - 1));
         _estimate.Text = fights == 0 ? "Nothing to simulate here"
-            : $"{fights} {(fights == 1 ? "fight" : "fights")}{(_state.BestMode && _state.Stances.Count > 1 ? $" ({_state.Stances.Count} stances each)" : "")}  ·  about {(seconds < 90 ? $"{Math.Max(1, Math.Round(seconds))}s" : $"{Math.Round(seconds / 60)} min")}";
+            : $"{fights} {(fights == 1 ? "fight" : "fights")}{(_state.PerStance ? $" ({_state.Stances.Count} stances each)" : "")}  ·  about {(seconds < 90 ? $"{Math.Max(1, Math.Round(seconds))}s" : $"{Math.Round(seconds / 60)} min")}";
 
         _go.Text = _state.Running ? "Cancel" : "Simulate";
         _go.ThemeTypeVariation = _state.Running ? "TexturedButtonCancel8x" : "TexturedActionButtonGreen8x";
         _go.Disabled = !_state.Running && fights == 0;
-        _scope.Disabled = _duration.Disabled = _loadout.Disabled = _unlimited.Disabled = _fromBank.Disabled = _reset.Disabled = _state.Running;
+        _where.Disabled = _duration.Disabled = _loadout.Disabled = _unlimited.Disabled = _fromBank.Disabled = _reset.Disabled = _state.Running;
+        if (_train != null) _train.Disabled = _state.Running;
+        if (_spell != null && GodotObject.IsInstanceValid(_spell)) _spell.Disabled = _state.Running;
+        _where.Text = _state.ScopeLabel;
         _progress.Value = _state.Total > 0 ? (double)_state.Done / _state.Total : 0;
         _progress.Modulate = _state.Running || _state.Done > 0 ? Colors.White : new Color(1, 1, 1, 0.35f);
         _status.Text = _state.Message != "" ? _state.Message
@@ -857,9 +1292,19 @@ sealed class SimView
         FillDetails();
     }
 
-    /// <summary>Development: opens the item picker of the first slot whose name contains the text.</summary>
+    /// <summary>Development: opens the areas, the earlier scans, the newest scan, or the item picker of a slot.</summary>
     public void DevOpenPicker(string slotName)
     {
+        if (slotName == "where") { OpenAreas(); return; }
+        if (slotName == "history") { OpenHistory(); return; }
+        if (slotName == "view") { if (_state.History.FirstOrDefault() is { } newest) Show(newest); return; }
+        if (slotName.StartsWith("spell=", StringComparison.Ordinal))
+        {
+            _state.SpellId = _state.Spells.FirstOrDefault(s => s.Name.Contains(slotName[6..], StringComparison.OrdinalIgnoreCase))?.Id ?? "";
+            FillSpells();
+            Refresh();
+            return;
+        }
         GearSlot? slot = _state.Gear.FirstOrDefault(g => g.SlotName.Contains(slotName, StringComparison.OrdinalIgnoreCase));
         if (slot != null) OpenPicker(slot, _gearHolder);
     }

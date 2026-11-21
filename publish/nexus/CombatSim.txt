@@ -2,10 +2,10 @@ NAME
 Combat Simulator
 
 VERSION
-0.1.0
+0.2.0
 
 FILE
-dist/CombatSim-0.1.0.zip
+dist/CombatSim-0.2.0.zip
 
 REQUIREMENT
 Melvor Mod Loader, 0.1.3 or newer
@@ -22,11 +22,12 @@ It does [b]not[/b] re-create the game's combat formulas. It loads a copy of your
 
 [size=4][b]What it does[/b][/size]
 [list]
-[*][b]Simulate[/b] an area (every enemy in it), a dungeon, or everything you have unlocked, for 15 minutes to 12 hours of game time each.
+[*][b]Simulate[/b] one area (every enemy in it), several, a dungeon, or everything you have unlocked, for 15 minutes to 12 hours of game time each.
 [*][b]Results per hour[/b]: kills, combat XP, gold, food eaten, deaths, and the lowest your hitpoints got. Click a column to sort.
 [*][b]Details[/b]: XP per skill, loot item by item, what was used (food, ammo, runes, prayer points), damage taken, time of the first death.
-[*][b]Equipment[/b]: fight with one of your saved loadouts, or click any slot to try another item: every item of the game that fits, with a search box, whether you own it or not. The same fight with other equipment is compared side by side.
-[*][b]Best for[/b]: pick the skill you want to train. Every unlocked fight is tried in each attack stance of your weapon and the fights are ranked by what they give that skill.
+[*][b]Equipment[/b]: fight with one of your saved loadouts, or click any slot to try another item: every item of the game that fits, with a search box, whether you own it or not. When the weapon casts spells, choose which one. The same fight with other equipment or another spell is compared side by side.
+[*][b]Best for[/b]: pick the skill you want to train and the areas to look in. Every fight is tried in each attack stance of your weapon and the fights are ranked by what they give that skill.
+[*][b]History[/b]: the last ten scans are kept, also after the game was closed. Look at one again without simulating anything.
 [*][b]Fight[/b]: a button starts the selected fight in the game.
 [*][b]Supplies[/b]: unlimited (the rates of a fight that is kept supplied) or from your bank (how far your food, ammo and runes get you).
 [/list]
