@@ -28,4 +28,6 @@ jobs:
       - name: The art is what the script draws
         run: |
           python3 tools/make-art.py
-          git diff --exit-code -- docs/img/art
+          # Changed or new: either means the committed pictures are not what the script draws.
+          changed="$(git status --porcelain -- docs/img/art)"
+          if [ -n "$changed" ]; then echo "$changed"; git --no-pager diff --stat -- docs/img/art; exit 1; fi

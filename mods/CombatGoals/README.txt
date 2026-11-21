@@ -1,4 +1,4 @@
-COMBAT GOALS 0.1.0
+COMBAT GOALS {version}
 for Melvor Idle 2 (tested on 0.11.6-alpha.1), needs Melvor Mod Loader
 
 The game's footer tells you how long a skill takes to reach a level goal, but only for one skill.

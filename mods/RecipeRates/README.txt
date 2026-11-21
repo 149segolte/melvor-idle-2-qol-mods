@@ -1,4 +1,4 @@
-RECIPE RATES 0.1.0
+RECIPE RATES {version}
 for Melvor Idle 2 (tested on 0.11.6-alpha.1), needs Melvor Mod Loader
 
 Which recipe gives more XP per hour: the one that takes 60 seconds for 10 XP, or the one that

@@ -107,3 +107,14 @@ sealed class Scan
     public double Rank(SimResult r) => BestMode && TrainSkillId != "" ? r.PerHour(r.Xp.GetValueOrDefault(TrainSkillId)) : r.XpPerHour;
     [JsonIgnore] public SimResult? Top => Results.Where(r => !r.Failed).OrderByDescending(Rank).FirstOrDefault();
 }
+
+static class SimText
+{
+    /// <summary>"3s", "5m", "5m 3s", "2h", "2h 10m".</summary>
+    public static string Clock(double seconds)
+    {
+        var t = TimeSpan.FromSeconds(seconds);
+        return t.TotalHours >= 1 ? (t.Minutes == 0 ? $"{(int)t.TotalHours}h" : $"{(int)t.TotalHours}h {t.Minutes}m")
+             : t.TotalMinutes >= 1 ? (t.Seconds == 0 ? $"{t.Minutes}m" : $"{t.Minutes}m {t.Seconds}s") : $"{t.Seconds}s";
+    }
+}

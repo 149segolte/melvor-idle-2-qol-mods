@@ -1,0 +1,9 @@
+<!--
+  Copy this file to Local.props (which git ignores) when the game is not in the usual Steam folder.
+  The builds and the scripts under tools\ both read it.
+-->
+<Project>
+  <PropertyGroup>
+    <GameDir>D:\Games\Steam\steamapps\common\Melvor Idle 2</GameDir>
+  </PropertyGroup>
+</Project>

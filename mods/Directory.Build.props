@@ -1,0 +1,58 @@
+<Project>
+  <!--
+    Everything the mods have in common. A mod's own project file is empty: its name is the mod's name, the
+    name of its DLL and its namespace.
+
+    Where the game is installed comes from, in this order:
+      1. dotnet build -p:GameDir="..."
+      2. Local.props in the root of the repository (not tracked; copy Local.props.example)
+      3. the usual Steam folder below
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)..\Local.props" Condition="Exists('$(MSBuildThisFileDirectory)..\Local.props')" />
+
+  <PropertyGroup>
+    <!-- One version for all the mods: a release is the repository at a tag. -->
+    <Version>0.3.0</Version>
+
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>$(MSBuildProjectName)</RootNamespace>
+    <Nullable>enable</Nullable>
+    <DebugType>none</DebugType>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+
+    <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Melvor Idle 2</GameDir>
+
+    <!-- Builds straight into the game's mods folder. Close the game first: the DLL is locked while it runs. -->
+    <OutputPath>$(GameDir)\mods\$(AssemblyName)\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+
+    <!--
+      The development helpers (a character that opens by itself, pictures and dumps on request) are compiled
+      only when asked for: dotnet build -p:DevTools=true, which is what tools\dev-cycle.ps1 does. A plain
+      build, Debug or Release, is the mod as players get it.
+    -->
+    <DefineConstants Condition="'$(DevTools)' == 'true'">$(DefineConstants);DEVTOOLS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The game's look and a few helpers, compiled into every mod: a mod ships as one DLL. -->
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\*.cs" LinkBase="Shared" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Compile-time only (Private=false): the running game already has these, and they are never copied. -->
+    <Reference Include="MelvorModLoader">
+      <HintPath>$(GameDir)\data_MelvorModLoader_windows_x86_64\MelvorModLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="GodotSharp">
+      <HintPath>$(GameDir)\data_GamesByMalcs.Melvor2_windows_x86_64\GodotSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="GamesByMalcs.Melvor2">
+      <HintPath>$(GameDir)\data_GamesByMalcs.Melvor2_windows_x86_64\GamesByMalcs.Melvor2.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

@@ -27,7 +27,7 @@ namespace CombatSim;
 
 /// <summary>
 /// Simulates fights without re-implementing the game's combat: a copy of the character is loaded into a
-/// second, invisible <see cref="Game"/> and the game's own ticks are run on it, on a background thread.
+/// second, invisible <see cref="Game"/> and the game's own ticks are run on it, on background threads.
 /// Every fight starts from a fresh copy of the same snapshot, so results do not leak into each other, and no
 /// copy is ever saved.
 /// </summary>
@@ -35,10 +35,19 @@ sealed class SimEngine
 {
     public const string Gold = "MelvorBase:GoldPieces";
     const int TicksPerSecond = 60;
-    // How often the fight is looked at (restarted after a death, supplies handed back).
+    // How often the fight is looked at (restarted after a death, supplies handed back, a cancel noticed).
     const int CheckEvery = 64;
+    // Unlimited supplies: what a slot that holds a pile (arrows) is filled with, and what the copy's bank is
+    // topped up to for food and runes before the fight. Both are handed back as they are used.
+    const int Pile = 100_000, Stock = 1_000;
+    // A character that dies within moments of every restart would otherwise spin through the whole fight.
+    const int MaxRestarts = 5_000;
+    // The save the game writes on request must be this fresh to be taken as the snapshot.
+    const double SaveMaxAgeSeconds = 10;
+    // A run is stopped when the game has grown by this much since it began: copies are not being released.
+    const long MemoryLimit = 4L << 30;
 
-    static readonly string[] CombatSkills =
+    public static readonly string[] CombatSkills =
     {
         "MelvorBase:Attack", "MelvorBase:Strength", "MelvorBase:Defence", "MelvorBase:Hitpoints",
         "MelvorBase:Ranged", "MelvorBase:Magic", "MelvorBase:Prayer", "MelvorBase:Slayer",
@@ -46,7 +55,7 @@ sealed class SimEngine
 
     // SaveManager is a static class, which an [UnsafeAccessor] cannot name: one reflection call per copy.
     static readonly MethodInfo? s_loadState = typeof(SaveManager).GetMethod("LoadGameStateFromStream",
-        BindingFlags.NonPublic | BindingFlags.Static, [typeof(Stream), typeof(Game)]);
+        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static, [typeof(Stream), typeof(Game)]);
 
     // The entities the game advances on every tick.
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_TickingEntities")]
@@ -55,11 +64,13 @@ sealed class SimEngine
     readonly Action<string> _log;
     CancellationTokenSource? _cancel;
 
-    /// <summary>Filled by the background thread; the mod drains it on the game's own thread.</summary>
+    /// <summary>Filled by the background threads; the mod drains it on the game's own thread.</summary>
     public readonly ConcurrentQueue<SimResult> Finished = new();
     public volatile bool Running;
     public volatile int Total;
     public volatile string Current = "";
+    /// <summary>Why the last run stopped by itself, in words for the player; "" when it did not.</summary>
+    public volatile string Problem = "";
     int _done;
     public int Done => Volatile.Read(ref _done);
 
@@ -70,7 +81,7 @@ sealed class SimEngine
     public static int DefaultWorkers => Math.Clamp(System.Environment.ProcessorCount / 2, 1, 4);
 
     public SimEngine(Action<string> log) => _log = log;
-#if DEBUG
+#if DEVTOOLS
     static WeakReference<Game>? s_lastSim;
 #endif
 
@@ -78,7 +89,7 @@ sealed class SimEngine
 
     /// <summary>
     /// Call on the game's thread. Has the game write its save the way its autosave does, takes that file as
-    /// the snapshot and starts simulating the targets one after the other.
+    /// the snapshot and starts simulating the targets, a few of them side by side.
     /// </summary>
     public bool Start(Game real, IReadOnlyList<SimTarget> targets, SimOptions options, int workers, out string error)
     {
@@ -88,9 +99,13 @@ sealed class SimEngine
         byte[] save;
         try
         {
+            DateTime asked = DateTime.UtcNow;
             real.LocalSave();
             string? file = NewestSave();
             if (file == null) { error = "The character's save file was not found."; return false; }
+            // Only the save that was just written: an older file is another moment, or another character.
+            if (File.GetLastWriteTimeUtc(file) < asked.AddSeconds(-SaveMaxAgeSeconds))
+            { error = "The game did not write a fresh save to simulate from."; return false; }
             save = File.ReadAllBytes(file);
         }
         catch (Exception e) { error = "Could not take a snapshot of the character: " + e.Message; return false; }
@@ -99,7 +114,9 @@ sealed class SimEngine
         Volatile.Write(ref _done, 0);
         Total = targets.Count;
         Current = "";
+        Problem = "";
         Running = true;
+        long memoryAtStart = GC.GetTotalMemory(false);
         var cancel = _cancel = new CancellationTokenSource();
         var waiting = new ConcurrentQueue<SimTarget>(targets);
         workers = Math.Clamp(workers, 1, Math.Max(1, targets.Count));
@@ -112,15 +129,24 @@ sealed class SimEngine
                     while (!cancel.IsCancellationRequested && waiting.TryDequeue(out SimTarget? target))
                     {
                         Current = target.Name;
-                        Finished.Enqueue(RunOne(save, target, options, cancel.Token));
+                        SimResult result = RunOne(save, target, options, cancel.Token);
+                        if (cancel.IsCancellationRequested) break;   // a fight that was cut short is not a result
+                        Finished.Enqueue(result);
                         Interlocked.Increment(ref _done);
+                        // The last line of defence against a game version that keeps the copies alive.
+                        if (GC.GetTotalMemory(false) - memoryAtStart > MemoryLimit && GC.GetTotalMemory(true) - memoryAtStart > MemoryLimit)
+                        {
+                            Problem = "Stopped: the simulated copies are not being released in this game version. Restart the game to free the memory.";
+                            _log(Problem);
+                            cancel.Cancel();
+                        }
                     }
                 })).ToArray());
             }
             catch (Exception e) { _log("The simulation stopped: " + e); }
             finally
             {
-#if DEBUG
+#if DEVTOOLS
                 long before = GC.GetTotalMemory(false);
                 long ws = Process.GetCurrentProcess().WorkingSet64;
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
@@ -177,8 +203,13 @@ sealed class SimEngine
         {
             // The game releases its own Game objects the same way when a character is closed.
             try { sim?.Dispose(); } catch (Exception e) { _log("Releasing the copy failed: " + e.Message); }
-            try { if (sim != null) Unhook(sim); } catch (Exception e) { LogOnce("Letting go of the copy failed (the game was updated?): " + e.Message); }
-#if DEBUG
+            try
+            {
+                if (sim != null && Unhook(sim) == 0)
+                    LogOnce("A simulated copy had no subscriptions to the game's settings to remove. That is fine if the game now releases them itself; if memory grows during a scan, the simulator needs an update.");
+            }
+            catch (Exception e) { LogOnce("Letting go of the copy failed (the game was updated?): " + e.Message); }
+#if DEVTOOLS
             if (sim != null) s_lastSim = new WeakReference<Game>(sim);
 #endif
             result.RealMilliseconds = clock.Elapsed.TotalMilliseconds;
@@ -204,6 +235,8 @@ sealed class SimEngine
         Wear(sim, combat, bank, options, notes);
         if (target.StanceId != null) Stand(combat, target, notes);
         Cast(combat, bank, options, notes);
+        // "Never runs out" has to hold from the first bite: food that is selected but down to a handful.
+        if (options.UnlimitedSupplies && combat.Food.SelectedFood is { } food) TopUp(bank, food.Item, Stock);
         combat.Player.GlobalHealth.Set(combat.Player.GlobalHealth.Max);
         result.MaxHp = combat.Player.Health.Max;
         result.LowestHp = combat.Player.Health.Current;
@@ -308,7 +341,7 @@ sealed class SimEngine
             sim.PropagateTick();
             if (ticks % CheckEvery != 0) continue;
             if (options.UnlimitedSupplies) Refill();
-            if ((ticks & 0xFFF) == 0 && cancel.IsCancellationRequested) { notes.Add("Cancelled."); result.Note = string.Join(" ", notes); break; }
+            if (cancel.IsCancellationRequested) break;
             if (sim.ActionManager.HasActiveAction) continue;
 
             // The fight ended. After a death it goes on, to learn how often that happens; anything else
@@ -323,7 +356,7 @@ sealed class SimEngine
                 result.Note = string.Join(" ", notes);
                 break;
             }
-            if (++restarts > 5000 || !Begin()) { notes.Add($"Could not go on after dying at {Clock(ticks)}."); result.Note = string.Join(" ", notes); break; }
+            if (++restarts > MaxRestarts || !Begin()) { notes.Add($"Could not go on after dying at {Clock(ticks)}."); result.Note = string.Join(" ", notes); break; }
         }
 
         result.Hours = ticks / (3600.0 * TicksPerSecond);
@@ -352,10 +385,15 @@ sealed class SimEngine
             if (!slots.TryGetObjectById(slotId, out EquipmentSlot? slot)) continue;
             if (itemId == "") { combat.ItemEquipping.UnequipSlot(slot); continue; }
             if (!items.TryGetObjectById(itemId, out Item? item) || !item.Capabilities.TryGet(out EquipmentCapability? wearable)) continue;
-            // Things worn in numbers (arrows, runes on a staff...) get a pile; everything else one.
-            int quantity = wearable.CanEquipQuantity ? 100_000 : 1;
-            int missing = quantity - bank.Inventory.GetQuantity(item);
-            if (missing > 0) bank.Inventory.AddQuantity(item, missing, AddItemFlags.None);
+            // One of anything is handed to the copy, owned or not: that is what trying an item means. Things
+            // worn in numbers (arrows) are a supply: a pile when supplies are unlimited, what you own otherwise.
+            int quantity = 1;
+            if (wearable.CanEquipQuantity)
+            {
+                quantity = options.UnlimitedSupplies ? Pile : bank.Inventory.GetQuantity(item);
+                if (quantity == 0) { notes.Add($"You have no {item.DisplayName.GetPluralText(2)} in the bank to equip."); continue; }
+            }
+            TopUp(bank, item, quantity);
             combat.ItemEquipping.EquipItem(item, quantity, slot);
             if (!combat.Equipment.IsItemEquipped(item))
                 notes.Add($"{item.DisplayName.GetPluralText(1)} could not be equipped (requirements not met?).");
@@ -387,11 +425,14 @@ sealed class SimEngine
             }
         }
         if (!options.UnlimitedSupplies || combat.MagicSpells.SelectedSpell is not { } casting) return;
-        foreach (ItemQuantity rune in casting.RuneCosts)
-        {
-            int missing = rune.Quantity * 1000 - bank.Inventory.GetQuantity(rune.Item);
-            if (missing > 0) bank.Inventory.AddQuantity(rune.Item, missing, AddItemFlags.None);
-        }
+        foreach (ItemQuantity rune in casting.RuneCosts) TopUp(bank, rune.Item, rune.Quantity * Stock);
+    }
+
+    /// <summary>Makes sure the copy's bank holds at least this many of an item.</summary>
+    static void TopUp(BankEntity bank, Item item, int atLeast)
+    {
+        int missing = atLeast - bank.Inventory.GetQuantity(item);
+        if (missing > 0) bank.Inventory.AddQuantity(item, missing, AddItemFlags.None);
     }
 
     // ---- letting a copy go ---------------------------------------------------------------------------------
@@ -460,7 +501,11 @@ sealed class SimEngine
     {
         if (target == null) return false;
         if (ReferenceEquals(target, sim)) return true;
-        GameEntity? entity = target as GameEntity ?? target.GetType().GetProperty("Entity", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(target) as GameEntity;
+        // By name and type, not GetProperty: a part that re-declares "Entity" would make that call ambiguous.
+        GameEntity? entity = target as GameEntity ?? target.GetType()
+            .GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .FirstOrDefault(p => p.Name == "Entity" && typeof(GameEntity).IsAssignableFrom(p.PropertyType) && p.GetIndexParameters().Length == 0)
+            ?.GetValue(target) as GameEntity;
         return entity != null && sim.Entities.TryGetObjectById(entity.Id, out GameEntity? mine) && ReferenceEquals(mine, entity);
     }
 
@@ -476,9 +521,5 @@ sealed class SimEngine
         catch (MissingMethodException) { }   // a game update moved the list: the fight is still right, "Used" is noisier
     }
 
-    static string Clock(long ticks)
-    {
-        var t = TimeSpan.FromSeconds(ticks / (double)TicksPerSecond);
-        return t.TotalHours >= 1 ? $"{(int)t.TotalHours}h {t.Minutes}m" : t.TotalMinutes >= 1 ? $"{t.Minutes}m {t.Seconds}s" : $"{t.Seconds}s";
-    }
+    static string Clock(long ticks) => SimText.Clock(ticks / (double)TicksPerSecond);
 }

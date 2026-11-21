@@ -1,4 +1,4 @@
-COMBAT SIMULATOR 0.2.0
+COMBAT SIMULATOR {version}
 for Melvor Idle 2 (tested on 0.11.6-alpha.1), needs Melvor Mod Loader
 
 What does an hour of fighting this enemy give me, what does it cost, and will I die? This answers

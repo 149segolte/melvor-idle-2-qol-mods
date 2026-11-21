@@ -2,8 +2,18 @@
 bin/
 obj/
 
+# release zips and page texts (rebuilt by tools/package.ps1)
+dist/
+
+# where the game is on this machine (see Local.props.example)
+Local.props
+
 # personal save backups
 _save-backup/
 
-# release zips (rebuilt by tools/package.ps1)
-dist/
+# editors and assistants
+.vs/
+.vscode/
+.idea/
+*.user
+.claude/

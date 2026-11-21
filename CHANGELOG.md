@@ -1,6 +1,61 @@
 # Changelog
 
-Every mod has a version of its own; this file lists the releases of the repository as a whole.
+From 0.3.0 on all the mods share one version, the repository's. Before that each mod had its own.
+
+## 0.3.0
+
+For Melvor Idle 2 0.11.6-alpha.1 with Melvor Mod Loader 0.1.3. The result of reading every line of the six
+mods before the repository was made public: no new features, many things made right.
+
+### Combat Simulator
+
+- A scan that was cut off by opening another character could show its results under the new character.
+- Opening the window again shows the equipment, loadouts, spells and food of that moment, not those of the
+  first time it was opened.
+- A cancelled fight is no longer listed, ranked and kept in the history as if it had been run.
+- The snapshot is only taken from a save the game wrote at that moment; an older file is refused.
+- "Unlimited" supplies cover food that is selected but nearly used up; "From bank" no longer hands a swapped
+  pile of arrows more than you own.
+- The Fight button checks that the area is unlocked for this character, and its note says exactly what it
+  will do.
+- A run stops by itself, with a message, should a game version keep the simulated copies in memory.
+- An error that repeats is written to the log once, not six times a second.
+
+### Item Sources
+
+- A tooltip kept open with Alt no longer stays on the screen after going back to the main menu.
+- Alt+Tab, Alt+Enter and AltGr no longer count as the Alt key: it is Alt by itself, when it is let go.
+- A long list is cut off cleanly, saying how much was left out.
+- When the game's data cannot be read, the tooltip says so instead of "Reading..." for ever.
+
+### Combat Goals
+
+- After a game update that breaks it, it stops with one line in the log instead of writing an error twice a
+  second for as long as the game runs.
+- Settings are saved once a second at most, and written whole: a crash can no longer leave a broken file,
+  and a file that cannot be read is set aside instead of being overwritten.
+- A level cap that rises while the window is up is followed.
+
+### All mods
+
+- Work that happens "a few times a second" is timed by the clock, not by counting frames, so it costs the
+  same on a fast machine.
+- The counters say "once", "twice", "12 times".
+- The log names no character.
+
+### For people who build the mods
+
+- One version and one build file for all the mods (`mods/Directory.Build.props`); the game folder comes from
+  `Local.props` instead of a path in every project.
+- The development helpers are behind `-p:DevTools=true`. A plain build, Debug or Release, is the mod as
+  players get it: it no longer presses "Load" by itself or writes pictures.
+- The scripts take `-Mod A,B` as written in their own examples, find the game the same way the builds do,
+  and `package.ps1` also makes one zip of all the mods.
+
+Not tried in the game for this release: the tags of Kills in Combat and Dungeon Completions (the combat
+screen was not open during the test run), cancelling a scan half way, and the simulator's "From bank"
+supplies and Fight button. The six mods load, the simulator, the item tooltips and the kept-open tooltip
+were run.
 
 ## 0.2.0
 

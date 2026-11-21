@@ -41,9 +41,8 @@ public class ItemSourcesMod : IMod
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_Inventory")]
     static extern IInventory? InventoryOf(ItemInfoPanel panel);
 
-    // The scene of the game's item panel, and the style of the card its tooltip puts it on.
+    // The scene of the game's item panel: the copy that Alt keeps open is made from it.
     const string ItemPanelScene = "res://Entities/Bank/item_info_panel.tscn";
-    const string TooltipCardStyle = "res://Assets/UI/StyleBoxes/tooltip_textured_dark_large.tres";
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_BankTagProductContainer")]
     static extern HBoxContainer? FoundRowOf(ItemInfoPanel panel);
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_BankTagIngredientContainer")]
@@ -76,7 +75,8 @@ public class ItemSourcesMod : IMod
     CanvasLayer? _pinLayer;
     PanelContainer? _pinCard;
     ItemInfoPanel? _pinPanel;
-    bool _altWasDown, _clickWasDown, _pinFailed;
+    bool _altWasDown, _altAlone, _clickWasDown, _pinFailed, _indexFailed;
+    readonly Tempo _lookForPanels = new(350), _lookForTooltip = new(500);
 
     public void OnLoad(ModContext ctx)
     {
@@ -92,11 +92,11 @@ public class ItemSourcesMod : IMod
         try
         {
             Game? game = GameAccess.CurrentGame;
-            if (game is not { IsSaveLoaded: true }) { _game = null; Hide(); return; }
+            if (game is not { IsSaveLoaded: true }) { _game = null; Hide(); Unpin(); return; }
             if (!ReferenceEquals(game, _game)) Open(game);
-            if (_frame % 20 == 0) FindPanels();
+            if (_lookForPanels.Due()) FindPanels();
             Pinning();
-#if DEBUG
+#if DEVTOOLS
             DevRequests();
             if (_devItem != null) return;   // the tooltip is being shown for a picture
 #endif
@@ -104,15 +104,17 @@ public class ItemSourcesMod : IMod
         }
         catch (Exception e) when (e is MissingMethodException or MissingFieldException)
         {
-            _ctx.Log("Stopped: the item panel changed in this game version. " + e.Message);
+            _ctx.Log("Stopped (the game was updated?): the item panel changed. " + e.Message);
             _stopped = true;
             Hide();
+            Unpin();
         }
         catch (Exception e)
         {
-            _ctx.Log("Stopped: " + e);
+            _ctx.Log("Stopped (the game was updated?): " + e);
             _stopped = true;
             Hide();
+            Unpin();
         }
     }
 
@@ -120,6 +122,7 @@ public class ItemSourcesMod : IMod
     {
         _game = game;
         _index = null;
+        _indexFailed = false;
         _skillOfRecipe = null;
         _areasOfEnemy = null;
         _panels.Clear();
@@ -138,12 +141,15 @@ public class ItemSourcesMod : IMod
                 if (!ReferenceEquals(game, _game)) return;
                 _index = index;
                 _ctx.Log($"Read {index.Owners:N0} game objects in {clock.ElapsedMilliseconds:N0} ms: sources or uses known for {index.Count:N0} items.");
-#if DEBUG
-                lock (index.Unclassified)
-                    _ctx.Log("Dev: neither given nor taken: " + string.Join(" | ", index.Unclassified.OrderBy(x => x).Take(80)));
+#if DEVTOOLS
+                _ctx.Log("Dev: neither given nor taken: " + string.Join(" | ", index.Unclassified.OrderBy(x => x).Take(80)));
 #endif
             }
-            catch (Exception e) { _ctx.Log("Could not read the game's data: " + e); }
+            catch (Exception e)
+            {
+                _ctx.Log("Could not read the game's data (the game was updated?): " + e);
+                if (ReferenceEquals(game, _game)) _indexFailed = true;
+            }
         });
     }
 
@@ -170,7 +176,7 @@ public class ItemSourcesMod : IMod
         {
             if (!GodotObject.IsInstanceValid(panel) || !panel.IsVisibleInTree() || ItemOf(panel) is not { } item) continue;
             Vector2 mouse = panel.GetGlobalMousePosition();
-#if DEBUG
+#if DEVTOOLS
             // Development: as if the pointer were on the row, to take a picture of the real thing.
             if (_devHoverUntil > _frame && (_devHoverFound ? FoundRowOf(panel) : UsedRowOf(panel)) is { } pretend)
                 mouse = pretend.GetGlobalRect().GetCenter();
@@ -241,7 +247,11 @@ public class ItemSourcesMod : IMod
         column.AddChild(head);
         column.AddChild(_style.FadingLine());
 
-        if (index == null) { column.AddChild(_style.Text("Reading the game's data...", GameStyle.TextGrey, 14)); return tip; }
+        if (index == null)
+        {
+            column.AddChild(_style.Text(_indexFailed ? "The game's data could not be read: see MelvorModLoader.log." : "Reading the game's data...", GameStyle.TextGrey, 14));
+            return tip;
+        }
         List<ItemRef> refs = (found ? index.For(item)?.Sources : index.For(item)?.Uses) ?? new List<ItemRef>();
         if (refs.Count == 0)
         {
@@ -257,9 +267,10 @@ public class ItemSourcesMod : IMod
         var counts = lines.GroupBy(l => l.Group).ToDictionary(g => g.Key, g => g.Count());
         string group = "";
         Texture2D? groupIcon = null;
-        int inGroup = 0, written = 0;
+        int inGroup = 0, written = 0, leftOut = 0;
         foreach (Line line in lines)
         {
+            if (written >= MaxLines) { leftOut++; continue; }
             if (line.Group != group)
             {
                 group = line.Group;
@@ -279,7 +290,7 @@ public class ItemSourcesMod : IMod
                 title.AddChild(name);
                 column.AddChild(title);
             }
-            if (++inGroup > MaxPerGroup || written >= MaxLines)
+            if (++inGroup > MaxPerGroup)
             {
                 if (inGroup == MaxPerGroup + 1) column.AddChild(_style.Text($"and {counts[group] - MaxPerGroup} more", GameStyle.TextDim, 12));
                 continue;
@@ -307,6 +318,7 @@ public class ItemSourcesMod : IMod
             }
             column.AddChild(row);
         }
+        if (leftOut > 0) column.AddChild(_style.Text($"and {leftOut} more elsewhere", GameStyle.TextDim, 12));
         return tip;
     }
 
@@ -317,8 +329,12 @@ public class ItemSourcesMod : IMod
     // copy of it where it is; the copy stays, and its two rows work like the ones in the bank.
     void Pinning()
     {
+        // Alt by itself, when it is let go: Alt+Tab, Alt+Enter and AltGr (which is Ctrl+Alt) are not this key.
         bool alt = Input.IsKeyPressed(Key.Alt), click = Input.IsMouseButtonPressed(MouseButton.Left);
-        bool altPressed = alt && !_altWasDown, clicked = click && !_clickWasDown;
+        if (alt && !_altWasDown) _altAlone = true;
+        if (alt && (Input.IsKeyPressed(Key.Ctrl) || Input.IsKeyPressed(Key.Tab) || Input.IsKeyPressed(Key.Enter) || Input.IsKeyPressed(Key.F4)
+                    || !DisplayServer.WindowIsFocused())) _altAlone = false;
+        bool altPressed = !alt && _altWasDown && _altAlone, clicked = click && !_clickWasDown;
         _altWasDown = alt;
         _clickWasDown = click;
 
@@ -343,7 +359,7 @@ public class ItemSourcesMod : IMod
         card = null;
         if (_gameTip == null || !GodotObject.IsInstanceValid(_gameTip) || _gameTipPanel == null || !GodotObject.IsInstanceValid(_gameTipPanel))
         {
-            if (_frame % 30 != 0) return false;   // not there yet: looked for now and then
+            if (!_lookForTooltip.Due()) return false;   // not there yet: looked for now and then
             _gameTip = GameAccess.FindGameView()?.GetNodeOrNull<Control>("ItemTooltip");
             _gameTipPanel = null;
             if (_gameTip == null) return false;
@@ -380,42 +396,47 @@ public class ItemSourcesMod : IMod
     {
         Unpin();
         if (_pinFailed || _gameTipPanel == null) return;
-        try
-        {
-            if (GameStyle.Load<PackedScene>(ItemPanelScene)?.Instantiate() is not ItemInfoPanel copy) throw new InvalidOperationException("the item panel's scene was not found");
-            if (_pinLayer == null || !GodotObject.IsInstanceValid(_pinLayer))
-            {
-                _pinLayer = new CanvasLayer { Layer = 118 };
-                _ctx.Tree.Root.AddChild(_pinLayer);
-            }
-            // The same card, the same panel, set up the way the game's tooltip sets its own.
-            var card = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Stop };
-            card.AddThemeStyleboxOverride("panel", gameCard is PanelContainer ? gameCard.GetThemeStylebox("panel") : _style.TooltipPanel());
-            var column = _style.Spaced(new VBoxContainer(), 8);
-            card.AddChild(column);
-            copy.ShowIcon = _gameTipPanel.ShowIcon;
-            copy.IconSize = _gameTipPanel.IconSize;
-            copy.ShowOpenableCapability = _gameTipPanel.ShowOpenableCapability;
-            copy.CustomMinimumSize = _gameTipPanel.CustomMinimumSize;
-            column.AddChild(copy);
-            Label hint = _style.Text("Kept open  ·  Alt or Esc closes", GameStyle.TextDim, 11);
-            hint.HorizontalAlignment = HorizontalAlignment.Right;
-            hint.MouseFilter = Control.MouseFilterEnum.Ignore;
-            column.AddChild(hint);
-            _pinLayer.AddChild(card);
-            // Bound once it is in the scene: the panel builds itself when it is ready.
-            if (InventoryOf(_gameTipPanel) is { } inventory) copy.Bind(item, inventory); else copy.Bind(item);
-            card.Position = gameCard.GlobalPosition;
-            _pinCard = card;
-            _pinPanel = copy;
-        }
+        // The copy touches parts of the game's panel nothing else here does. Should one of them be gone in a
+        // game version, that shows when PinCopy is first run, and only this feature is switched off.
+        try { PinCopy(item, gameCard, _gameTipPanel); }
         catch (Exception e)
         {
-            // The tooltip of this game version cannot be copied: everything else goes on working.
             _pinFailed = true;
-            _ctx.Log("Keeping a tooltip open with Alt is switched off: " + e.Message);
+            _ctx.Log("Keeping a tooltip open with Alt is switched off (the game was updated?): " + e.Message);
             Unpin();
         }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void PinCopy(Item item, Control gameCard, ItemInfoPanel original)
+    {
+        if (GameStyle.Load<PackedScene>(ItemPanelScene)?.Instantiate() is not ItemInfoPanel copy) throw new InvalidOperationException("the item panel's scene was not found");
+        if (_pinLayer == null || !GodotObject.IsInstanceValid(_pinLayer))
+        {
+            _pinLayer = new CanvasLayer { Layer = 118 };
+            _ctx.Tree.Root.AddChild(_pinLayer);
+        }
+        // The same card, the same panel, set up the way the game's tooltip sets its own.
+        var card = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Stop };
+        card.AddThemeStyleboxOverride("panel", gameCard is PanelContainer ? gameCard.GetThemeStylebox("panel") : _style.TooltipPanel());
+        var column = _style.Spaced(new VBoxContainer(), 8);
+        card.AddChild(column);
+        copy.ShowIcon = original.ShowIcon;
+        copy.IconSize = original.IconSize;
+        copy.ShowOpenableCapability = original.ShowOpenableCapability;
+        copy.CustomMinimumSize = original.CustomMinimumSize;
+        column.AddChild(copy);
+        Label hint = _style.Text("Kept open  ·  Alt or Esc closes", GameStyle.TextDim, 11);
+        hint.HorizontalAlignment = HorizontalAlignment.Right;
+        hint.MouseFilter = Control.MouseFilterEnum.Ignore;
+        column.AddChild(hint);
+        _pinLayer.AddChild(card);
+        // Known to Unpin from here on, so nothing is left on the screen if binding fails.
+        _pinCard = card;
+        _pinPanel = copy;
+        card.Position = gameCard.GlobalPosition;
+        // Bound once it is in the scene: the panel builds itself when it is ready.
+        if (InventoryOf(original) is { } inventory) copy.Bind(item, inventory); else copy.Bind(item);
     }
 
     void Unpin()
@@ -518,7 +539,7 @@ public class ItemSourcesMod : IMod
         return _areasOfEnemy.GetValueOrDefault(enemy) ?? new List<string>();
     }
 
-#if DEBUG
+#if DEVTOOLS
     // Development: a file "item.dump" writes every item panel of the scene to the log, shown or not, with the
     // two rows this mod watches and what sits around them.
     void DevDump()

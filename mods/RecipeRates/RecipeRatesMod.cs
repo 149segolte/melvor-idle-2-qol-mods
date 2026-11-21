@@ -32,8 +32,8 @@ public class RecipeRatesMod : IMod
     // Our block in a tooltip starts with this, which is how it is found again.
     const string Marker = "[color=#b5b5b5]Per hour (estimate)";
     // The game's own colours for gains, losses and highlighted words in its tooltips and footer.
-    const string Gain = "green", Loss = "#ff4500", Highlight = "#FFD16D", Quiet = "#b5b5b5";
-    static readonly Color BestColor = new("ffd16d");
+    const string Gain = "green", Loss = "#ff4500", Quiet = "#b5b5b5";
+    static readonly string Highlight = "#" + GameStyle.Highlight.ToHtml(false);
 
     // The game's "+13" tag keeps the XP stats it shows, and its tooltip, to itself.
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_Experience")]
@@ -53,7 +53,7 @@ public class RecipeRatesMod : IMod
     readonly Dictionary<ExperienceStats, IActiveCraftingRecipe> _recipes = new(ReferenceEqualityComparer.Instance);
     readonly List<SkillXPPanel> _panels = new();
     readonly List<(SkillXPPanel Panel, Rates Rates, bool InList)> _shown = new();
-    int _frame;
+    readonly Tempo _tick = new(500);
     bool _stopped, _tooltips = true, _firstLogged;
 
     public void OnLoad(ModContext ctx)
@@ -65,9 +65,10 @@ public class RecipeRatesMod : IMod
 
     void OnFrame()
     {
-        if (_stopped || ++_frame % 30 != 0) return;   // twice a second
+        if (_stopped || !_tick.Due()) return;   // twice a second
         Game? game = GameAccess.CurrentGame;
-        if (game is not { IsSaveLoaded: true }) { _game = null; return; }
+        // On the main menu nothing of the character that was open is kept.
+        if (game is not { IsSaveLoaded: true }) { _game = null; _bank = null; _recipes.Clear(); _panels.Clear(); _shown.Clear(); return; }
         try
         {
             if (!ReferenceEquals(game, _game)) { _game = game; MapRecipes(game); }
@@ -139,7 +140,7 @@ public class RecipeRatesMod : IMod
             _firstLogged = true;
             _ctx.Log($"Rates shown on {_shown.Count} recipes ({listed} in a list).");
         }
-#if DEBUG
+#if DEVTOOLS
         DevCapture();
 #endif
     }
@@ -185,7 +186,7 @@ public class RecipeRatesMod : IMod
             anchor.AddChild(line);
         }
         Label value = line.GetNode<Label>("Number"), suffix = line.GetNode<Label>("Unit");
-        value.AddThemeColorOverride("font_color", isBest ? BestColor : GameStyle.TextPaper);
+        value.AddThemeColorOverride("font_color", isBest ? GameStyle.Highlight : GameStyle.TextPaper);
         line.Visible = true;
 
         // The space under the tag is free unless the recipe has a long row of ingredients: then fall back
@@ -286,7 +287,7 @@ public class RecipeRatesMod : IMod
         return t.TotalHours >= 1 ? $"{(int)t.TotalHours}h {t.Minutes}m" : $"{t.Minutes}m";
     }
 
-#if DEBUG
+#if DEVTOOLS
     // Development: each time a recipe list comes on screen, and each time one of the XP tooltips is opened,
     // save a picture of the game into the mod's folder; log what was worked out the first time.
     int _listScans, _tipScans;

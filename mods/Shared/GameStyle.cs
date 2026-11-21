@@ -25,14 +25,15 @@ public sealed class GameStyle(float scale = 1f)
     public static readonly Color TextDim = new("969696");      // units, hints
     public static readonly Color TextPaper = new("e9dfc1");    // warm value text
     public static readonly Color TextGold = new("edbf59");
-    public static readonly Color TextTeal = new("0fd9b7");     // the footer's level goal
+    public static readonly Color Highlight = new("ffd16d");    // the brighter gold of a frame or a best value
 
     const string Fonts = "res://Assets/Fonts/Default/Static/";
     public static Font? Bold => Load<Font>(Fonts + "Default_Bold.ttf");
     public static Font? SemiBold => Load<Font>(Fonts + "Default_SemiBold.ttf");
 
+    // "as", not a cast: a resource that became another kind in a game update is treated as gone.
     public static T? Load<T>(string path) where T : Resource =>
-        ResourceLoader.Exists(path) ? ResourceLoader.Load<T>(path) : null;
+        ResourceLoader.Exists(path) ? ResourceLoader.Load(path) as T : null;
 
     /// <summary>An icon by its file name in the game's Icons folder. Some only exist as "Name_64".</summary>
     public static Texture2D? Icon(string name) =>
@@ -180,19 +181,27 @@ public sealed class GameStyle(float scale = 1f)
     /// </summary>
     public PanelContainer CountTag(Texture2D? icon, out Label count)
     {
-        var tag = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Stop, SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+        // Pass: the tag shows its tooltip, and a click on it still reaches the button it sits on.
+        var tag = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Pass, SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
         var box = new StyleBoxFlat { BgColor = new Color("141310"), BorderColor = new Color(new Color("e2dbcd"), 0.55f) };
         box.SetBorderWidthAll(1);
         box.SetCornerRadiusAll(2);
         box.ContentMarginLeft = Px(6); box.ContentMarginRight = Px(7); box.ContentMarginTop = Px(1); box.ContentMarginBottom = Px(1);
         tag.AddThemeStyleboxOverride("panel", box);
-        var row = Spaced(new HBoxContainer(), 4);
+        var row = Spaced(new HBoxContainer { Name = "Row" }, 4);
         row.AddChild(Picture(icon, 14));
         count = Text("0", TextPaper, 14, Bold);
+        count.Name = "Count";
         row.AddChild(count);
         tag.AddChild(row);
         return tag;
     }
+
+    /// <summary>The number label of a tag made by <see cref="CountTag"/>, for a tag that was found again in the scene.</summary>
+    public static Label? CountOf(Node tag) => tag.GetNodeOrNull<Label>("Row/Count");
+
+    /// <summary>"once", "twice", "1,204 times".</summary>
+    public static string Times(double count) => count == 1 ? "once" : count == 2 ? "twice" : $"{count:N0} times";
 
     /// <summary>
     /// Puts <paramref name="tag"/> right after the text of <paramref name="label"/>. In a row (a box

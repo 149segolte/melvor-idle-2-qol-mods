@@ -1,4 +1,4 @@
-KILLS IN COMBAT 0.1.0
+KILLS IN COMBAT {version}
 for Melvor Idle 2 (tested on 0.11.6-alpha.1), needs Melvor Mod Loader
 
 Shows how many times you have killed the enemy you are fighting, in a small tag next to its name

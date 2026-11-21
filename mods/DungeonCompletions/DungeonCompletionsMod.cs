@@ -34,7 +34,7 @@ public class DungeonCompletionsMod : IMod
     Game? _game;
     CombatEntity? _combat;
     CombatAreasMenu? _menu;
-    int _frame;
+    readonly Tempo _tick = new(250), _search = new(1000);
     bool _addedLogged;
 
     public void OnLoad(ModContext ctx)
@@ -46,7 +46,7 @@ public class DungeonCompletionsMod : IMod
 
     void OnFrame()
     {
-        if (++_frame % 15 != 0) return;   // four times a second is plenty
+        if (!_tick.Due()) return;   // four times a second is plenty
         Game? game = GameAccess.CurrentGame;
         if (game is not { IsSaveLoaded: true }) { _game = null; _combat = null; _menu = null; return; }
         if (!ReferenceEquals(game, _game))
@@ -72,7 +72,7 @@ public class DungeonCompletionsMod : IMod
         if (_menu == null || !GodotObject.IsInstanceValid(_menu))
         {
             _menu = null;
-            if (_frame % 60 != 0) return;
+            if (!_search.Due()) return;
             _menu = GameAccess.FindNode<CombatAreasMenu>(GameAccess.FindGameView());
             if (_menu == null) return;
         }
@@ -110,16 +110,16 @@ public class DungeonCompletionsMod : IMod
         }
         if (tag == null)
         {
-            tag = _style.CountTag(GameStyle.Icon("CompletionLog"), out _);
+            tag = _style.CountTag(GameStyle.Icon("CompletionLog"), out _);   // the number is found by name below
             tag.Name = TagName;
             GameStyle.AttachAfterText(name, tag);
             if (!_addedLogged) { _addedLogged = true; _ctx.Log("Tags added to the dungeons in the combat areas menu."); }
         }
 
         double completed = combat.Statistics.DungeonCompleted.GetValue(dungeon);
-        if (tag.FindChildren("*", "Label", true, false).OfType<Label>().FirstOrDefault() is { } count)
-            count.Text = completed.ToString("N0");
-        tag.TooltipText = $"{dungeon.DisplayName.Text}: completed {completed:N0} times";
+        if (GameStyle.CountOf(tag) is { } count) count.Text = completed.ToString("N0");
+        tag.TooltipText = completed == 0 ? $"{dungeon.DisplayName.Text}: not completed yet"
+            : $"{dungeon.DisplayName.Text}: completed {GameStyle.Times(completed)}";
         tag.Visible = true;
         GameStyle.PlaceAfterText(name, tag);
     }

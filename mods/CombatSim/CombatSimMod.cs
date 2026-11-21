@@ -38,7 +38,7 @@ public class CombatSimMod : IMod, ISimLookup
         public string Scope { get; set; } = "";
         public List<string> Areas { get; set; } = new();
         public List<string> BestAreas { get; set; } = new();
-        /// <summary>Fights simulated side by side; 0 lets the mod choose (half of the processor, four at most).</summary>
+        /// <summary>Fights simulated side by side, 1 to 8; 0 lets the mod choose (half of the processor, four at most).</summary>
         public int Workers { get; set; }
         public int Duration { get; set; } = 1;
         public bool Unlimited { get; set; } = true;
@@ -50,12 +50,6 @@ public class CombatSimMod : IMod, ISimLookup
     // now can be read from the slots themselves.
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_Loadouts")]
     static extern Dictionary<LoadoutSlot, EquipmentLoadout> SavedLoadouts(EquipmentComponent equipment);
-
-    static readonly string[] CombatSkillIds =
-    {
-        "MelvorBase:Attack", "MelvorBase:Strength", "MelvorBase:Defence", "MelvorBase:Hitpoints",
-        "MelvorBase:Ranged", "MelvorBase:Magic", "MelvorBase:Prayer", "MelvorBase:Slayer",
-    };
 
     ModContext _ctx = null!;
     Settings _settings = new();
@@ -76,7 +70,8 @@ public class CombatSimMod : IMod, ISimLookup
     Button? _stripButton;
     readonly Dictionary<string, Texture2D?> _targetIcons = new();
     int _frame;
-    bool _stripMissingLogged, _wasRunning;
+    bool _stripMissingLogged, _wasRunning, _loadoutsUnreadable;
+    readonly HashSet<string> _reported = new();
 
     public void OnLoad(ModContext ctx)
     {
@@ -90,7 +85,7 @@ public class CombatSimMod : IMod, ISimLookup
         _state.BestMode = _settings.BestMode;
         _state.TrainSkillId = _settings.TrainSkill;
         _engine = new SimEngine(ctx.Log);
-        _state.Workers = _settings.Workers > 0 ? Math.Min(_settings.Workers, 16) : SimEngine.DefaultWorkers;
+        _state.Workers = _settings.Workers > 0 ? Math.Min(_settings.Workers, 8) : SimEngine.DefaultWorkers;
         _history = new SimHistory(ctx.Directory, ctx.Log);
         _state.History = _history.Scans;
         ctx.Frame += OnFrame;
@@ -106,13 +101,14 @@ public class CombatSimMod : IMod, ISimLookup
             if (_game == null) return;
             if (_frame % 60 == 0) UpdateStripButton();
             Pump();
-#if DEBUG
+#if DEVTOOLS
             DevRequests();
 #endif
         }
         catch (Exception e)
         {
-            _ctx.Log("Error: " + e);
+            // Whatever keeps going wrong would otherwise be written six times a second.
+            if (_reported.Add(e.GetType().Name + e.Message)) _ctx.Log("Error: " + e);
         }
     }
 
@@ -135,6 +131,8 @@ public class CombatSimMod : IMod, ISimLookup
         _state.Selected = null;
         _state.Viewing = null;
         _state.Done = _state.Total = 0;
+        _state.Overrides.Clear();
+        _state.LoadoutId = _state.WornLoadoutId = _state.SpellId = _state.Message = "";
         _history.Close();
         _historyRead = false;
         _run = null;
@@ -192,11 +190,6 @@ public class CombatSimMod : IMod, ISimLookup
         _state.BestAreas.RemoveWhere(id => !_areaIcons.ContainsKey(id));
 
         BuildGear();
-
-        var food = _combat.Food.SelectedFood;
-        _state.FoodMissing = food == null;
-        _state.FoodLine = food == null ? "No food selected: you will not heal."
-            : $"Food: {food.Item.DisplayName.GetPluralText(2)} x{_bank?.Inventory.GetQuantity(food.Item) ?? 0:N0}";
     }
 
     // The loadouts to choose from, and the slots of the chosen one with the player's changes on top.
@@ -206,9 +199,11 @@ public class CombatSimMod : IMod, ISimLookup
         _state.Gear.Clear();
         if (_combat == null || _game == null) return;
         string? worn = _combat.Loadouts.CurrentLoadout?.Data.Id;
+        _state.WornLoadoutId = worn ?? "";
         foreach (ActiveLoadoutSlot loadout in _combat.Loadouts.LoadoutDisplayOrder)
         {
-            if (!loadout.IsUnlocked) continue;
+            // What another loadout holds could not be read: only the worn one can be shown truthfully.
+            if (!loadout.IsUnlocked || (_loadoutsUnreadable && loadout.Data.Id != worn)) continue;
             string name = string.IsNullOrWhiteSpace(loadout.Name) ? loadout.Data.DisplayName.Text : loadout.Name;
             _state.Loadouts.Add((loadout.Data.Id, loadout.Data.Id == worn ? name + " (worn now)" : name));
         }
@@ -227,7 +222,14 @@ public class CombatSimMod : IMod, ISimLookup
                 LoadoutSlot? key = _combat.Loadouts.ActiveLoadouts.Keys.FirstOrDefault(l => l.Id == _state.LoadoutId);
                 if (key != null) SavedLoadouts(_combat.Equipment).TryGetValue(key, out saved);
             }
-            catch (MissingMethodException) { _ctx.Log("Saved loadouts cannot be read in this game version: showing what is worn now."); }
+            catch (MissingMethodException)
+            {
+                _ctx.Log("Saved loadouts cannot be read in this game version: only the worn one is offered.");
+                _loadoutsUnreadable = true;
+                _state.Loadouts.RemoveAll(l => l.Id != worn);
+                _state.LoadoutId = worn ?? "";
+                _state.Overrides.Clear();
+            }
         }
 
         var items = _game.Data.GetDataRegistryOutput<Item>();
@@ -254,6 +256,14 @@ public class CombatSimMod : IMod, ISimLookup
             if (item != null && item.Capabilities.TryGet(out WeaponCapability? held)) { weapon = held.Type; wielded = held; }
         }
 
+        // The game keeps a food choice per loadout; only the worn one's can be read.
+        var food = _combat.Food.SelectedFood;
+        bool wornNow = _state.LoadoutId == worn;
+        _state.FoodMissing = wornNow && food == null;
+        _state.FoodLine = !wornNow ? "Food: as that loadout has it"
+            : food == null ? "No food selected: you will not heal."
+            : $"Food: {food.Item.DisplayName.GetPluralText(2)} x{_bank?.Inventory.GetQuantity(food.Item) ?? 0:N0}";
+
         // The attack stances belong to the weapon of this setup; bare hands have their own.
         weapon ??= _combat.Equipment.DefaultWeapon?.Weapon?.Type;
         _state.Stances.Clear();
@@ -278,7 +288,7 @@ public class CombatSimMod : IMod, ISimLookup
         _state.SpellDefault = casting != null ? $"As now: {casting}" : "As the loadout has it";
 
         _state.Skills.Clear();
-        foreach (string id in CombatSkillIds)
+        foreach (string id in SimEngine.CombatSkills)
             if (_game.LeveledEntities.FirstOrDefault(s => s.Id == id) is { } skill) _state.Skills.Add((id, skill.DisplayName.Text));
         if (_state.Skills.All(k => k.Id != _state.TrainSkillId)) _state.TrainSkillId = "";
     }
@@ -321,7 +331,10 @@ public class CombatSimMod : IMod, ISimLookup
     void Open()
     {
         if (_game == null) return;
-        if (!_engine.Running) BuildCatalog();   // unlocks, food and levels may have changed since last time
+        // Unlocks, equipment, food and levels may have changed since last time: the window is built again
+        // from them. During a run it is left alone.
+        bool refreshed = !_engine.Running;
+        if (refreshed) BuildCatalog();
         if (!_historyRead)
         {
             _historyRead = true;
@@ -329,7 +342,7 @@ public class CombatSimMod : IMod, ISimLookup
             _history.Open(_game.CharacterName);
             if (_history.Scans.Count > 0) _ctx.Log($"{_history.Scans.Count} earlier scans read in {clock.ElapsedMilliseconds} ms.");
         }
-        if (_window is not { IsAlive: true }) Build();
+        if (refreshed || _window is not { IsAlive: true }) Build();
         _window!.Visible = true;
         _view!.Refresh();
         SyncStripButton();
@@ -420,8 +433,9 @@ public class CombatSimMod : IMod, ISimLookup
         if (_combat == null) return;
         try
         {
-            BaseCombatArea? area = _combat.Areas.ActiveAreas.Keys.FirstOrDefault(a => a.Id == target.AreaId);
-            if (area == null) { _state.Message = "That area is not available."; _view?.Refresh(); return; }
+            var (area, active) = _combat.Areas.ActiveAreas.FirstOrDefault(a => a.Key.Id == target.AreaId);
+            // An earlier scan may be of another character with the same name: only what this one has unlocked.
+            if (area == null || active is not { UnlockRequirements.AreMet: true }) { _state.Message = "That area is not available."; _view?.Refresh(); return; }
 
             if (target.StanceId != null)
             {
@@ -467,6 +481,7 @@ public class CombatSimMod : IMod, ISimLookup
         bool running = _engine.Running;
         while (_engine.Finished.TryDequeue(out SimResult? result))
         {
+            if (_run == null) continue;   // left over from a run that was dropped (another character was opened)
             _state.Results[result.Key] = result;
             changed = true;
         }
@@ -479,6 +494,7 @@ public class CombatSimMod : IMod, ISimLookup
         {
             _ctx.Log($"Simulation finished: {_state.Done} of {_state.Total} fights in {_runClock.Elapsed.TotalSeconds:0.0}s.");
             KeepScan();
+            if (_engine.Problem != "") _state.Message = _engine.Problem;
             changed = true;
         }
         _wasRunning = running;
@@ -508,6 +524,8 @@ public class CombatSimMod : IMod, ISimLookup
             _stripMissingLogged = true;
             return;
         }
+        // The strip may be the one of the character before: its button goes, this one takes its place.
+        if (strip.GetNodeOrNull("CombatSimButton") is { } stale) { stale.Name = "CombatSimButtonGone"; stale.QueueFree(); }
         _stripButton = new Button
         {
             Name = "CombatSimButton",
@@ -549,17 +567,15 @@ public class CombatSimMod : IMod, ISimLookup
 
     Settings ReadSettings()
     {
-        try { return JsonSerializer.Deserialize<Settings>(File.ReadAllText(SettingsFile)) ?? new(); }
-        catch { return new(); }   // no file yet, or a broken one
+        return ModFiles.ReadJson<Settings>(SettingsFile, _ctx.Log);
     }
 
     void WriteSettings()
     {
-        try { File.WriteAllText(SettingsFile, JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true })); }
-        catch (Exception e) { _ctx.Log("Could not save settings: " + e.Message); }
+        ModFiles.WriteJson(SettingsFile, _settings, _ctx.Log);
     }
 
-#if DEBUG
+#if DEVTOOLS
     // Development: a file "sim.request" opens the window and starts a run; when it is done, a picture of the
     // game goes into the mod's folder and the table into the log. The file holds
     //   <where>|<duration index>|<1 unlimited, 0 from bank>|<row to select>

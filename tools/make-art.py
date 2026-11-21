@@ -300,7 +300,7 @@ def banner():
     """The top of the readme as one of the game's windows: the list of the mods, and the details."""
     w, h = 1000, 416
     art = Art(w, h, "Melvor Idle 2 Mods: six quality-of-life mods in the game's own look. Separate downloads. "
-                    'Your save is never touched.')
+                    'Your save is never changed.')
     frame(art, 0, 0, w, h)
     title = 'Melvor Idle 2 Mods'
     paper(art, w / 2, 22, paper_width(title, 38, 46), 52, title, 38, seed_of('banner'))
@@ -329,7 +329,7 @@ def banner():
     heading(art, x, top + 108, inner, 'At a glance', 17)
     y = top + 126
     for label, value, colour in (('Mods', str(len(MODS)), WHITE), ('Downloads', 'one zip each', WHITE),
-                                 ('Needs', 'Melvor Mod Loader', GOLD), ('Save file', 'never touched', GOOD)):
+                                 ('Needs', 'Melvor Mod Loader', GOLD), ('Save file', 'never changed', GOOD)):
         stat(art, x, y, inner, 30, label, value, colour, 18)
         y += 33.5
     return art.render()

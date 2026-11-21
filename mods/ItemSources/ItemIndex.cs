@@ -1,6 +1,5 @@
 using System;
 using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -41,9 +40,12 @@ sealed class ItemIndex
     const int MaxDepth = 6;
 
     readonly Dictionary<Item, ItemEntry> _entries = new(ReferenceEqualityComparer.Instance);
-    readonly ConcurrentDictionary<Type, PropertyInfo[]> _properties = new();
-    /// <summary>Property paths that held items but said neither "given" nor "taken": for the log.</summary>
+    // Built and read by the one thread that builds the index.
+    readonly Dictionary<Type, PropertyInfo[]> _properties = new();
+#if DEVTOOLS
+    /// <summary>Development: property paths that held items but said neither "given" nor "taken".</summary>
     public readonly HashSet<string> Unclassified = new();
+#endif
     public int Owners { get; private set; }
 
     public ItemEntry? For(Item item) => _entries.GetValueOrDefault(item);
@@ -147,7 +149,13 @@ sealed class ItemIndex
     {
         if (item == null || ReferenceEquals(item, owner) || chance <= 0) return;
         bool taken = Taken.IsMatch(path);
-        if (!taken && !Given.IsMatch(path)) { lock (Unclassified) Unclassified.Add($"{owner.GetType().Name}: {path}"); return; }
+        if (!taken && !Given.IsMatch(path))
+        {
+#if DEVTOOLS
+            Unclassified.Add($"{owner.GetType().Name}: {path}");
+#endif
+            return;
+        }
         if (!_entries.TryGetValue(item, out ItemEntry? entry)) _entries[item] = entry = new ItemEntry();
         (taken ? entry.Uses : entry.Sources).Add(new ItemRef(owner, path, Math.Min(chance, 1), Math.Max(min, 0), Math.Max(max, min)));
     }
@@ -181,10 +189,13 @@ sealed class ItemIndex
             && !space.Contains(".Saves") && !space.Contains(".Audio");
     }
 
-    PropertyInfo[] PropertiesOf(Type type) => _properties.GetOrAdd(type, t => t
-        .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-        .Where(p => p.CanRead && p.GetIndexParameters().Length == 0 && Worth(p.PropertyType))
-        .ToArray());
+    PropertyInfo[] PropertiesOf(Type type)
+    {
+        if (_properties.TryGetValue(type, out PropertyInfo[]? known)) return known;
+        return _properties[type] = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.CanRead && p.GetIndexParameters().Length == 0 && Worth(p.PropertyType))
+            .ToArray();
+    }
 
     // Never touch a getter that returns a picture, a sound or a plain value: some load their resource on
     // first use, and none can hold an item.

@@ -18,8 +18,8 @@ This is a small fan project about a game people enjoy. Keep it that way.
 
 ## If something goes wrong
 
-Report it to the repository owner through GitHub (the "Report content" link on the comment, or a private
-message to [@Springs-Tea](https://github.com/Springs-Tea)). Reports are read and kept confidential. Comments
+Use the "Report content" link on the comment or the issue, which reaches GitHub and the repository's owner
+([@Springs-Tea](https://github.com/Springs-Tea)). Reports are kept confidential. Comments
 that break these rules may be edited or removed, and people who keep breaking them may be blocked from the
 repository.
 

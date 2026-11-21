@@ -15,7 +15,6 @@ max_line_length = 110
 trim_trailing_whitespace = false
 
 [*.cs]
-max_line_length = 150
 csharp_style_namespace_declarations = file_scoped:suggestion
 csharp_new_line_before_open_brace = all
 dotnet_sort_system_directives_first = true

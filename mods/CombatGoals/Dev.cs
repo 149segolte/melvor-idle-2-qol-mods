@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEVTOOLS
 using System;
 using System.IO;
 using System.Linq;
@@ -9,7 +9,7 @@ using MelvorModLoader;
 namespace CombatGoals;
 
 /// <summary>
-/// Development only (not compiled into Release builds). Writes what the game looks like into the mod's folder:
+/// Development only: compiled when a build asks for it (-p:DevTools=true, see tools/dev-cycle.ps1). Writes what the game looks like into the mod's folder:
 /// a dump of its themes, a dump of the scene tree, and screenshots on request (create a file "shot.request").
 /// </summary>
 static class Dev

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Springs-Tea/melvor-2-mods/releases"><img src="docs/img/art/btn-download.svg" alt="Download the mods" height="46"></a>
+  <a href="https://github.com/Springs-Tea/melvor-idle-2-qol-mods/releases"><img src="docs/img/art/btn-download.svg" alt="Download the mods" height="46"></a>
   &nbsp;
   <a href="https://www.nexusmods.com/melvoridle2/mods/2"><img src="docs/img/art/btn-loader.svg" alt="Get the Melvor Mod Loader" height="46"></a>
 </p>
@@ -91,7 +91,7 @@ is a plain zip that you extract into the game folder: no installer, nothing outs
 
 1. **Open the game folder**: Steam > right-click Melvor Idle 2 > Manage > Browse local files.
 2. **Install the loader**: extract its zip there. `override.cfg` ends up next to `Melvor2.exe`.
-3. **Add the mods you want**: extract each zip from [Releases](https://github.com/Springs-Tea/melvor-2-mods/releases) into the same folder.
+3. **Add the mods you want**: extract each zip from [Releases](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/releases) into the same folder. `MelvorIdle2-QoL-Mods-<version>.zip` is all of them in one.
 4. **Start the game** from Steam. A green line in the top left corner says how many mods were loaded.
 
 ```
@@ -113,9 +113,10 @@ goals) are in that folder too, so nothing is left behind.
 <details>
 <summary><b>Is my save safe?</b></summary>
 
-Yes. No mod writes to the save, and none adds or removes anything in the game. The Combat Simulator works
-on a copy of the character that exists only in memory and is thrown away after every fight. The one button
-that acts on the game, "Fight", does what the game's own area menu does: it starts a fight.
+Yes. No mod changes what is in your save, and none adds or removes anything in the game. The Combat
+Simulator asks the game to save the way its autosave does, reads that file, and works on a copy of the
+character that exists only in memory and is thrown away after every fight. The one button that acts on the
+game, "Fight", does what the game's own area menu does: it starts a fight.
 </details>
 
 <details>
@@ -136,12 +137,12 @@ other mods keep running. If the game does not start at all, delete `override.cfg
 <details>
 <summary><b>Something is wrong. What do you need?</b></summary>
 
-Open an [issue](https://github.com/Springs-Tea/melvor-2-mods/issues) with the mod's name, the game version, and `MelvorModLoader.log` from the
+Open an [issue](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues) with the mod's name, the game version, and `MelvorModLoader.log` from the
 game folder (it is rewritten on every start).
 </details>
 
 <p align="center">
-  <a href="https://github.com/Springs-Tea/melvor-2-mods/issues"><img src="docs/img/art/btn-issue.svg" alt="Report a problem" height="46"></a>
+  <a href="https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues"><img src="docs/img/art/btn-issue.svg" alt="Report a problem" height="46"></a>
 </p>
 
 <h2 align="center"><a name="how-they-are-built"></a><img src="docs/img/art/h-how-they-are-built.svg" alt="How they are built" width="720"></h2>
@@ -154,7 +155,7 @@ flowchart TB
         L["Melvor Mod Loader<br/>loads every DLL under mods"]
     end
     subgraph repo["This repository"]
-        S["mods/Shared<br/>GameStyle · GameWindow"]
+        S["mods/Shared<br/>GameStyle · GameWindow · ModFiles"]
         M1["CombatSim"]
         M2["ItemSources"]
         M3["RecipeRates"]
@@ -175,17 +176,19 @@ flowchart TB
 | Folder | Contents |
 | --- | --- |
 | `mods/<Mod>` | One project per mod: its code, a `README.md` for people and the `README.txt` that ships in the zip. |
-| `mods/Shared` | The game's look, compiled into every mod. |
-| `third_party/MelvorModLoader` | The loader's source (MIT, by falorfrozen), kept so it can be rebuilt after a game update. |
+| `mods/Shared` | The game's look and a few helpers, compiled into every mod. |
+| `mods/Directory.Build.props` | What every mod's build has in common, and the one version they share. |
+| `third_party/MelvorModLoader` | The loader's source (MIT, by falorfrozen), to read: it is the API the mods are written against. |
 | `publish` | The release checklist and the page texts for Nexus Mods. |
 | `tools` | Scripts for building, packaging and looking around the game while developing. |
 | `docs/img` | The pictures on these pages. |
 
 <h2 align="center"><a name="building-from-source"></a><img src="docs/img/art/h-building.svg" alt="Building from source" width="720"></h2>
 
-You need the game with the loader installed, and the [.NET 10 SDK](https://dotnet.microsoft.com/download).
-The projects reference the game's DLLs where the game is installed; pass `-p:GameDir="..."` when that is not
-`D:\Steam\steamapps\common\Melvor Idle 2`.
+You need the game with the loader installed, the [.NET 10 SDK](https://dotnet.microsoft.com/download), and
+PowerShell 7 for the scripts. The projects compile against the game's DLLs where the game is installed. When
+that is not the usual Steam folder (`C:\Program Files (x86)\Steam\steamapps\common\Melvor Idle 2`), copy
+`Local.props.example` to `Local.props` and put your folder there; the builds and the scripts both read it.
 
 ```powershell
 # one mod, straight into the game's mods folder (close the game first: the DLL is locked while it runs)

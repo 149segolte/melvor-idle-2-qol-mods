@@ -1,12 +1,19 @@
 // Lists the types and member signatures of the game's assembly whose full name matches a pattern: what an
 // editor's auto-completion shows, as text. It reads names and signatures only, no code.
-//   dotnet run --project tools/ApiDump -- "EnemyCompletion|CombatAreas" ["<game data folder>"]
+//   dotnet run --project tools/ApiDump -- "EnemyCompletion|CombatAreas" ["<game folder>"]
+// The game folder is the second argument, else the one in Local.props in the root of the repository (see
+// Local.props.example), else the usual Steam folder.
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 
 string pattern = args.Length > 0 ? args[0] : ".";
-string dir = args.Length > 1 ? args[1] : @"D:\Steam\steamapps\common\Melvor Idle 2\data_GamesByMalcs.Melvor2_windows_x86_64";
+string dir = Path.Combine(args.Length > 1 ? args[1] : GameDir(), "data_GamesByMalcs.Melvor2_windows_x86_64");
+if (!File.Exists(Path.Combine(dir, "GamesByMalcs.Melvor2.dll")))
+{
+    Console.Error.WriteLine($"The game's assembly was not found in '{dir}'. Pass the game folder as the second argument, or set it in Local.props.");
+    return 1;
+}
 var filter = new Regex(pattern, RegexOptions.IgnoreCase);
 
 AssemblyLoadContext.Default.Resolving += (ctx, name) =>
@@ -46,6 +53,20 @@ foreach (Type type in types.Where(t => filter.IsMatch(t.FullName ?? "") && !t.Na
             Console.WriteLine($"  {Access(m.IsPublic, m.IsPrivate)}{(m.IsStatic ? "static " : "")}{Name(m.ReturnType)} {m.Name}({Params(m)})");
     }
     catch (Exception e) { Console.WriteLine("  (members not readable: " + e.GetType().Name + ")"); }
+}
+return 0;
+
+// Local.props sits in the root of the repository: look upwards from where this runs.
+static string GameDir()
+{
+    for (DirectoryInfo? at = new(AppContext.BaseDirectory); at != null; at = at.Parent)
+    {
+        string local = Path.Combine(at.FullName, "Local.props");
+        if (File.Exists(local) && Regex.Match(File.ReadAllText(local), @"<GameDir>\s*(.+?)\s*</GameDir>") is { Success: true } found)
+            return found.Groups[1].Value;
+        if (Directory.Exists(Path.Combine(at.FullName, ".git"))) break;
+    }
+    return @"C:\Program Files (x86)\Steam\steamapps\common\Melvor Idle 2";
 }
 
 static string Access(bool isPublic, bool isPrivate) => isPublic ? "" : isPrivate ? "private " : "internal ";

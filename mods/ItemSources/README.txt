@@ -1,4 +1,4 @@
-ITEM SOURCES 0.2.0
+ITEM SOURCES {version}
 for Melvor Idle 2 (tested on 0.11.6-alpha.1), needs Melvor Mod Loader
 
 The game's item panel says "Found in" and "Used in" with a few skill icons. Hover either row and

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using MelvorMods.Shared;
 
 namespace CombatSim;
 
@@ -42,7 +43,9 @@ sealed class SimHistory
             {
                 try
                 {
-                    if (JsonSerializer.Deserialize<Scan>(File.ReadAllText(file), Json) is { Results.Count: > 0 } scan && scan.Results.All(r => r.Target != null))
+                    // The id becomes a file name when the scan is dropped: only the digits this mod writes.
+                    if (JsonSerializer.Deserialize<Scan>(File.ReadAllText(file), Json) is { Results.Count: > 0 } scan
+                        && scan.Id.Length is > 0 and <= 20 && scan.Id.All(char.IsAsciiDigit) && scan.Results.All(r => r.Target != null))
                         Scans.Add(scan);
                 }
                 catch (Exception e) { _log($"An earlier scan could not be read ({Path.GetFileName(file)}): {e.Message}"); }
@@ -73,7 +76,7 @@ sealed class SimHistory
                 try
                 {
                     Directory.CreateDirectory(folder);
-                    File.WriteAllText(FileOf(folder, scan), JsonSerializer.Serialize(scan, Json));
+                    ModFiles.WriteWhole(FileOf(folder, scan), JsonSerializer.Serialize(scan, Json));
                     foreach (Scan old in dropped) File.Delete(FileOf(folder, old));
                 }
                 catch (Exception e) { _log("The scan could not be saved: " + e.Message); }

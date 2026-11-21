@@ -125,7 +125,9 @@ sealed class Rates
             double have = line.Item != null ? bank.Inventory.GetQuantity(line.Item)
                         : line.Currency != null ? bank.Wallet.GetQuantity(line.Currency) : 0;
             // Starting one needs the whole amount; over time, preservation stretches the stock.
-            double possible = have < line.Needed ? 0 : have / Math.Max(-line.PerReward, 1e-9);
+            // With everything preserved nothing is used up: this material never runs out.
+            if (have >= line.Needed && -line.PerReward < 1e-9) continue;
+            double possible = have < line.Needed ? 0 : have / -line.PerReward;
             rewards = rewards == null ? possible : Math.Min(rewards.Value, possible);
         }
         return rewards * SecondsPerReward;
@@ -150,13 +152,4 @@ sealed class Rates
         >= 1000 => (value / 1000).ToString("0.#") + "K",
         _ => value.ToString("0"),
     };
-
-    public static string Duration(double seconds)
-    {
-        if (seconds >= 100 * 3600) return $"{seconds / 3600:N0}h";
-        var t = TimeSpan.FromSeconds(seconds);
-        if (t.TotalHours >= 1) return $"{(int)t.TotalHours}h {t.Minutes}m";
-        if (t.TotalMinutes >= 1) return $"{t.Minutes}m {t.Seconds}s";
-        return $"{t.Seconds}s";
-    }
 }

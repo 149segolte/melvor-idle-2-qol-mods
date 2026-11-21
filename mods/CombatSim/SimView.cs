@@ -51,8 +51,8 @@ sealed class SimState
     public string SpellDefault = "";
 
     /// <summary>
-    /// False: simulate the fights of one area. True: look for the best place to train, by trying every
-    /// unlocked fight in every stance and ranking them by the XP of <see cref="TrainSkillId"/>.
+    /// False: what the fights of the chosen areas give. True: look for the best place to train, by trying
+    /// every one of those fights in every stance and ranking them by the XP of <see cref="TrainSkillId"/>.
     /// </summary>
     public bool BestMode;
     /// <summary>The skill to rank by in best mode; "" is all combat XP together.</summary>
@@ -143,7 +143,9 @@ sealed class SimState
     }
 
     /// <summary>The equipment simulated is what the character has on, item for item.</summary>
-    public bool IsWornSetup => Overrides.Count == 0 && SetupLabel.Contains("worn now");
+    public bool IsWornSetup => Overrides.Count == 0 && LoadoutId != "" && LoadoutId == WornLoadoutId;
+    /// <summary>The loadout the character has on, as of the last time the window was opened.</summary>
+    public string WornLoadoutId = "";
 
 }
 
@@ -188,14 +190,14 @@ sealed class SimView
     readonly ISimLookup _lookup;
     readonly Action _simulate, _cancel, _changed, _gearChanged, _rebuild, _clearHistory;
     readonly Action<SimTarget> _fight;
-    Button _fightButton = null!;
+    Button _fightButton = null!, _modeFights = null!, _modeBest = null!;
     Label _fightNote = null!;
     SimTarget? _fightTarget;
 
     OptionButton _duration = null!, _loadout = null!;
     OptionButton? _train, _spell;
     Button _where = null!, _unlimited = null!, _fromBank = null!, _go = null!, _reset = null!, _historyButton = null!, _back = null!;
-    Label _supplyHint = null!, _estimate = null!, _status = null!, _empty = null!, _showing = null!;
+    Label _food = null!, _supplyHint = null!, _estimate = null!, _status = null!, _empty = null!, _showing = null!;
     ProgressBar _progress = null!;
     VBoxContainer _rows = null!, _details = null!, _emptyBox = null!, _recent = null!;
     Control _gearHolder = null!, _spellHolder = null!;
@@ -238,8 +240,8 @@ sealed class SimView
         best.ButtonPressed = _state.BestMode;
         fights.Pressed += () => { if (_state.BestMode) { _state.BestMode = false; _state.Selected = null; _state.Viewing = null; _changed(); _rebuild(); } };
         best.Pressed += () => { if (!_state.BestMode) { _state.BestMode = true; _state.Selected = null; _state.Viewing = null; _changed(); _rebuild(); } };
-        modes.AddChild(fights);
-        modes.AddChild(best);
+        modes.AddChild(_modeFights = fights);
+        modes.AddChild(_modeBest = best);
         body.AddChild(modes);
 
         if (_state.BestMode)
@@ -320,9 +322,9 @@ sealed class SimView
         _reset.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
         _reset.Pressed += () => { _state.Overrides.Clear(); ShowCurrent(); ClosePicker(); _gearChanged(); FillGear(); Refresh(); };
         body.AddChild(_reset);
-        Label food = Wrapped(_state.FoodLine, SetupWidth - 20, _state.FoodMissing ? Bad : GameStyle.TextGrey, 12);
-        food.HorizontalAlignment = HorizontalAlignment.Center;
-        body.AddChild(food);
+        _food = Wrapped("", SetupWidth - 20, GameStyle.TextGrey, 12);
+        _food.HorizontalAlignment = HorizontalAlignment.Center;
+        body.AddChild(_food);
         FillGear();
 
         body.AddChild(new Control { SizeFlagsVertical = Control.SizeFlags.ExpandFill, MouseFilter = Control.MouseFilterEnum.Ignore });
@@ -350,6 +352,8 @@ sealed class SimView
     {
         foreach (Node old in _gearHolder.GetChildren()) old.QueueFree();
         _reset.Visible = _state.Overrides.Count > 0;
+        _food.Text = _state.FoodLine;
+        _food.AddThemeColorOverride("font_color", _state.FoodMissing ? Bad : GameStyle.TextGrey);
         FillSpells();
         if (_state.Gear.Count == 0) return;
 
@@ -421,7 +425,7 @@ sealed class SimView
             var frame = new StyleBoxFlat
             {
                 BgColor = state == "hover" ? new Color("39302d") : new Color("15110f"),
-                BorderColor = slot.Changed ? new Color("ffd16d") : state == "hover" ? new Color("8d8c86") : new Color("524943"),
+                BorderColor = slot.Changed ? GameStyle.Highlight : state == "hover" ? new Color("8d8c86") : new Color("524943"),
             };
             frame.SetBorderWidthAll(slot.Changed ? 2 : 1);
             frame.SetCornerRadiusAll(2);
@@ -447,7 +451,7 @@ sealed class SimView
         return button;
     }
 
-    // ---- the item picker: every item of the game that fits the slot ---------------------------------------
+    // ---- the floating panels ---------------------------------------------------------------------------
 
     // One small panel at a time floats next to the window: the items of a slot, the areas, the earlier scans.
     void ClosePicker()
@@ -1100,15 +1104,15 @@ sealed class SimView
         {
             _fightButton.Text = "Fight " + _fightTarget.Name;
             _fightButton.TooltipText = _fightTarget.IsDungeon ? $"Enter {_fightTarget.Name} now" : $"Start fighting {_fightTarget.Name} in {_fightTarget.AreaName} now";
-            _fightNote.Text = _state.Viewing != null
-                ? "Starts with what you are wearing now. These numbers are from an earlier scan."
-                : !_state.IsWornSetup
-                ? "Starts with what you are wearing now, not the equipment simulated here."
-                : string.Join(" ", new[]
-                {
-                    _fightTarget.StanceName != "" ? $"Switches to the {_fightTarget.StanceName} stance." : "",
-                    _state.SpellId != "" ? $"Selects {_state.Spells.FirstOrDefault(s => s.Id == _state.SpellId)?.Name ?? "the spell"}." : "",
-                }.Where(t => t != ""));
+            // What pressing it will and will not do, piece by piece: the same pieces the mod acts on.
+            bool viewing = _state.Viewing != null, worn = !viewing && _state.IsWornSetup;
+            _fightNote.Text = string.Join(" ", new[]
+            {
+                viewing ? "These numbers are from an earlier scan." : "",
+                worn ? "" : "Starts with what you are wearing now, not the equipment simulated here.",
+                _fightTarget.StanceName != "" ? $"Switches to the {_fightTarget.StanceName} stance, if your weapon has it." : "",
+                worn && _state.SpellId != "" ? $"Selects {_state.Spells.FirstOrDefault(s => s.Id == _state.SpellId)?.Name ?? "the spell"}." : "",
+            }.Where(t => t != ""));
             _fightNote.Visible = _fightNote.Text != "";
         }
         if (signature == _detailsSignature) return;
@@ -1277,7 +1281,7 @@ sealed class SimView
         _go.Text = _state.Running ? "Cancel" : "Simulate";
         _go.ThemeTypeVariation = _state.Running ? "TexturedButtonCancel8x" : "TexturedActionButtonGreen8x";
         _go.Disabled = !_state.Running && fights == 0;
-        _where.Disabled = _duration.Disabled = _loadout.Disabled = _unlimited.Disabled = _fromBank.Disabled = _reset.Disabled = _state.Running;
+        _modeFights.Disabled = _modeBest.Disabled = _where.Disabled = _duration.Disabled = _loadout.Disabled = _unlimited.Disabled = _fromBank.Disabled = _reset.Disabled = _state.Running;
         if (_train != null) _train.Disabled = _state.Running;
         if (_spell != null && GodotObject.IsInstanceValid(_spell)) _spell.Disabled = _state.Running;
         _where.Text = _state.ScopeLabel;
@@ -1292,6 +1296,7 @@ sealed class SimView
         FillDetails();
     }
 
+#if DEVTOOLS
     /// <summary>Development: opens the areas, the earlier scans, the newest scan, or the item picker of a slot.</summary>
     public void DevOpenPicker(string slotName)
     {
@@ -1308,6 +1313,7 @@ sealed class SimView
         GearSlot? slot = _state.Gear.FirstOrDefault(g => g.SlotName.Contains(slotName, StringComparison.OrdinalIgnoreCase));
         if (slot != null) OpenPicker(slot, _gearHolder);
     }
+#endif
 
     Label Caption(string text)
     {
@@ -1338,7 +1344,7 @@ sealed class SimView
 
     public static string Fmt(double value) => Math.Abs(value) switch
     {
-        >= 1_000_000 => (value / 1_000_000).ToString("0.##") + "M",
+        >= 999_950 => (value / 1_000_000).ToString("0.##") + "M",   // from where "0.#K" would round up to 1000K
         >= 100_000 => (value / 1000).ToString("0.#") + "K",
         >= 100 => value.ToString("N0"),
         >= 10 => value.ToString("0.#"),
@@ -1346,10 +1352,5 @@ sealed class SimView
         _ => value.ToString("0.##"),
     };
 
-    static string Clock(double seconds)
-    {
-        var t = TimeSpan.FromSeconds(seconds);
-        return t.TotalHours >= 1 ? (t.Minutes == 0 ? $"{(int)t.TotalHours}h" : $"{(int)t.TotalHours}h {t.Minutes}m")
-             : t.TotalMinutes >= 1 ? (t.Seconds == 0 ? $"{t.Minutes}m" : $"{t.Minutes}m {t.Seconds}s") : $"{t.Seconds}s";
-    }
+    static string Clock(double seconds) => SimText.Clock(seconds);
 }

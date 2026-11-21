@@ -2,41 +2,58 @@ NAME
 Combat Goals
 
 VERSION
-0.1.0
+{version}
 
 FILE
-dist/CombatGoals-0.1.0.zip
+dist/CombatGoals-{version}.zip
 
 REQUIREMENT
 Melvor Mod Loader, 0.1.3 or newer
 
-SUMMARY (the short line under the name)
-A small window with the XP per hour of every combat skill you are training and the time left to a level goal you set for each.
+PICTURES
+docs/img/combat-goals.png
+
+SUMMARY (the short line under the name, at most 350 characters)
+A small window with the XP per hour of every combat skill you are training, a level goal of your own for each, and the time left to it. Like the footer's "time left to level N", for all the skills combat trains at once.
 
 DESCRIPTION (paste as is: it is in Nexus formatting)
 
 [size=5][b]Combat Goals[/b][/size]
-The game's footer tells you how long a skill takes to reach a level goal, but only for one skill. Combat trains several at once.
+The game's footer tells you how long a skill needs to reach a level you type in, but only for the one skill you are doing. Combat trains several at once. This is that footer line for every combat skill that is gaining XP.
 
+[size=4][b]Using it[/b][/size]
 [list]
-[*]A small window lists every combat skill that is gaining XP, with its [b]XP per hour[/b] and the [b]time left[/b] to a level goal.
-[*]Type a goal level per skill. Goals are remembered per character.
-[*]The rate is the average of the current fight over the last 1, 5, 10 or 30 minutes. Leaving combat, or fighting something else, starts the measurement again.
-[*]Drag the window anywhere; drag its corner for another size.
-[*]A round button on the right edge of the screen, and F10, show and hide it.
+[*]Start a fight: the window appears by itself, and a round button for it appears in the strip on the right edge of the screen. The button, or [b]F10[/b], hides and shows it.
+[*]Each line is a skill: your level, its XP per hour, and the time left to the level in the box at the end.
+[*]Type your own [b]goal[/b] into that box. It is remembered per character; when you reach it, it moves on to the next level.
+[*]The box at the top chooses what the rate is averaged over: 1, 5, 10 or 30 minutes.
+[*]Drag the window anywhere; drag its bottom right corner for another size.
+[/list]
+
+[size=4][b]What the rate is[/b][/size]
+The rate of the fight you are in. Leaving combat, or fighting something else, starts the measurement again, so time spent on other skills never drags the rate down. Only skills that are gaining XP right now are listed.
+
+[size=4][b]Good to know[/b][/size]
+[list]
+[*]The first ten seconds of a fight show "Waiting for combat XP...": a rate needs a little history.
+[*]XP gained while the game was closed is not part of the rate.
+[*]Outside combat the window hides by itself.
 [/list]
 
 [size=4][b]Install[/b][/size]
 [list=1]
 [*]Install the [url=https://www.nexusmods.com/melvoridle2/mods/2]Melvor Mod Loader[/url] (0.1.3 or newer).
-[*]Extract this zip into the game folder: Steam > Melvor Idle 2 > Manage > Browse local files. The file ends up as [font=Courier New]mods\CombatGoals\CombatGoals.dll[/font].
+[*]Extract this zip into the game folder: Steam > right-click Melvor Idle 2 > Manage > Browse local files. The file ends up as [font=Courier New]mods\CombatGoals\CombatGoals.dll[/font].
 [*]Start the game.
 [/list]
-[size=4][b]Uninstall[/b][/size]
-Delete the folder [font=Courier New]mods\CombatGoals[/font]. Nothing in your save is changed.
+To update, extract the new zip over the old one.
 
-[size=4][b]Good to know[/b][/size]
-Tested on game version 0.11.6-alpha.1 with Melvor Mod Loader 0.1.3. The game is in early access: an update can break the mod until it is rebuilt.
-It uses the game's own textures, fonts and colours, so it looks like part of the game.
-Open source (MIT): [url=https://github.com/Springs-Tea/melvor-2-mods]https://github.com/Springs-Tea/melvor-2-mods[/url]
+[size=4][b]Uninstall[/b][/size]
+Delete the folder [font=Courier New]mods\CombatGoals[/font]. Your goals and the window's place are in settings.json there. Nothing in your save is changed.
+
+[size=4][b]About[/b][/size]
+Made for game version 0.11.6-alpha.1 with Melvor Mod Loader 0.1.3. The game is in early access: an update can break the mod until it is rebuilt. It then switches itself off and says so in MelvorModLoader.log; the game and your other mods keep running.
+It uses the game's own textures, fonts and colours, so it looks like part of the game. It gives no items, XP or bonuses.
+Open source (MIT), with more pictures and the full guide: [url=https://github.com/Springs-Tea/melvor-idle-2-qol-mods/tree/main/mods/CombatGoals]https://github.com/Springs-Tea/melvor-idle-2-qol-mods/tree/main/mods/CombatGoals[/url]
+Problems and ideas: [url=https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues]https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues[/url]
 Unofficial and fan-made. Not affiliated with Games by Malcs or Jagex.

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using GamesByMalcs.Melvor2;
 using GamesByMalcs.Melvor2.Components.CombatAreas;
+using GamesByMalcs.Melvor2.Components.Experience;
 using GamesByMalcs.Melvor2.Entities;
 using GamesByMalcs.Melvor2.Entities.Combat;
 using Godot;
@@ -29,7 +30,7 @@ public class CombatGoalsMod : IMod
 
     // The XP rate is the average over this much recent play, like the footer's own time period.
     static readonly (string Label, double Seconds)[] Periods = { ("1 minute", 60), ("5 minutes", 300), ("10 minutes", 600), ("30 minutes", 1800) };
-    const double LongestPeriod = 1800;
+    static readonly double LongestPeriod = Periods[^1].Seconds;
     const ulong SampleEveryMs = 1000;
     // A longer gap between samples means the game was paused or computed offline progress: that XP did not
     // arrive at a rate we can measure, so the history starts again.
@@ -40,11 +41,8 @@ public class CombatGoalsMod : IMod
 
     sealed class Row
     {
-        public string Id = "";
-        public Func<double> Xp = null!;
-        public Func<int> Level = null!;
-        public Func<int> LevelCap = null!;
-        public Func<int, double> XpForLevel = null!;
+        public string Id = "", Name = "";
+        public ExperienceComponent Experience = null!;
         public readonly Queue<(ulong Ms, double Xp)> Samples = new();
         public Control Root = null!;
         public Label LevelLabel = null!, RateLabel = null!, TimeLabel = null!;
@@ -67,7 +65,7 @@ public class CombatGoalsMod : IMod
 
     ModContext _ctx = null!;
     Settings _settings = new();
-    Game? _game;
+    Game? _game, _failed;
     readonly List<Row> _rows = new();
     GameStyle _style = new();
     CanvasLayer? _layer;
@@ -75,11 +73,11 @@ public class CombatGoalsMod : IMod
     Control? _grip;
     Label? _empty;
     Button? _stripButton;
-    bool _wasDown, _settingUp, _dragging, _placed, _resizing, _inCombat, _stripMissingLogged;
+    bool _wasDown, _settingUp, _dragging, _placed, _resizing, _inCombat, _stripMissingLogged, _stopped, _unsaved, _guessing;
     Vector2 _resizeFrom;
     float _resizeTo = 1f;
     ulong _lastSample;
-    int _frame, _shown = -1;
+    int _shown = -1;
     object? _fight;
 
     public void OnLoad(ModContext ctx)
@@ -87,7 +85,7 @@ public class CombatGoalsMod : IMod
         _ctx = ctx;
         _settings = ReadSettings();
         ctx.Frame += OnFrame;
-#if DEBUG
+#if DEVTOOLS
         Dev.Start(ctx);
 #endif
         ctx.Log("Ready. F10 shows/hides the combat goals window.");
@@ -95,17 +93,31 @@ public class CombatGoalsMod : IMod
 
     void OnFrame()
     {
+        if (_stopped) return;
+        try { Step(); }
+        catch (Exception e)
+        {
+            // One line, then nothing: an error on every frame would bury the log and help nobody.
+            _stopped = true;
+            _ctx.Log("Stopped (the game was updated?): " + e);
+            DropWindow();
+        }
+    }
+
+    void Step()
+    {
         bool down = Input.IsKeyPressed(Key.F10);
         if (down && !_wasDown) SetHidden(!_settings.Hidden);
         _wasDown = down;
 
-        if (++_frame % 30 == 0) TrackCharacter();
+        TrackCharacter();
         if (_game == null) return;
 
         ulong now = Time.GetTicksMsec();
         if (now - _lastSample < SampleEveryMs) return;
         bool gap = _lastSample != 0 && now - _lastSample > GapResetMs;
         _lastSample = now;
+        FlushSettings();
         _inCombat = InCombat(_game);
         // The rate is "this fight, lately": time spent on other skills, or on another enemy, is not part of
         // it. Leaving combat or changing what is fought starts the history again.
@@ -118,7 +130,7 @@ public class CombatGoalsMod : IMod
         if (_inCombat) Sample(now, gap);
         Refresh(now);
         UpdateStripButton();
-#if DEBUG
+#if DEVTOOLS
         // Development: a file "scale.request" holding a number rebuilds the window at that size.
         string request = Path.Combine(_ctx.Directory, "scale.request");
         if (File.Exists(request))
@@ -140,10 +152,14 @@ public class CombatGoalsMod : IMod
     {
         Game? now = GameAccess.CurrentGame;
         if (now is not { IsSaveLoaded: true }) now = null;
-        if (ReferenceEquals(now, _game)) return;
+        if (ReferenceEquals(now, _game) || (now != null && ReferenceEquals(now, _failed))) return;
+        FlushSettings();
         _game = now;
+        _failed = null;
         _rows.Clear();
         _lastSample = 0;
+        _fight = null;
+        _inCombat = false;
         _stripButton = null;   // it lived in the old character's screen
         DropWindow();
         if (now == null) return;
@@ -151,12 +167,16 @@ public class CombatGoalsMod : IMod
         {
             BuildRows(now);
             BuildWindow(now);
-            _ctx.Log($"Character opened: {now.CharacterName}, tracking {_rows.Count} combat skills.");
+            _ctx.Log($"Character opened, tracking {_rows.Count} combat skills.");
         }
         catch (Exception e)
         {
+            // Not tried again for this character: it would fail, and log, twice a second.
             _ctx.Log("Could not set up for this character (the game was updated?): " + e);
+            _failed = now;
             _game = null;
+            _rows.Clear();
+            DropWindow();
         }
     }
 
@@ -166,15 +186,7 @@ public class CombatGoalsMod : IMod
         {
             var skill = game.LeveledEntities.FirstOrDefault(s => s.Id == id);
             if (skill == null) { _ctx.Log($"Skill not found, skipped: {id}"); continue; }
-            var xp = skill.Experience;
-            _rows.Add(new Row
-            {
-                Id = id,
-                Xp = () => (double)xp.Xp,
-                Level = () => (int)xp.Level,
-                LevelCap = () => (int)xp.LevelCap,
-                XpForLevel = level => (double)xp.Table.GetXpForLevel(level),
-            });
+            _rows.Add(new Row { Id = id, Name = skill.DisplayName.Text, Experience = skill.Experience });
         }
     }
 
@@ -203,17 +215,13 @@ public class CombatGoalsMod : IMod
         var list = _style.Spaced(new VBoxContainer { CustomMinimumSize = new Vector2(_style.Px(430), 0) }, 2);
         inner.AddChild(list);
 
-        _empty = _style.Text("Waiting for combat experience...", GameStyle.TextGrey);
+        _empty = _style.Text("Waiting for combat XP...", GameStyle.TextGrey);
         _empty.HorizontalAlignment = HorizontalAlignment.Center;
         _empty.CustomMinimumSize = new Vector2(0, _style.Px(28));
         list.AddChild(_empty);
 
         var saved = _settings.Targets.TryGetValue(game.CharacterName, out var mine) ? mine : new();
-        foreach (Row row in _rows)
-        {
-            var skill = game.LeveledEntities.First(s => s.Id == row.Id);
-            list.AddChild(BuildRow(row, skill.DisplayName.Text, saved));
-        }
+        foreach (Row row in _rows) list.AddChild(BuildRow(row, saved));
 
         _layer.AddChild(BuildGrip());
         _window.ItemRectChanged += PlaceGrip;
@@ -247,7 +255,7 @@ public class CombatGoalsMod : IMod
 
         bar.AddChild(_style.Picture(GameStyle.Icon("TimeInterval_48"), 16));
         OptionButton period = _style.Dropdown();
-        period.TooltipText = "Experience rates are averaged over this much recent play";
+        period.TooltipText = "XP rates are averaged over this much recent play";
         foreach (var p in Periods) period.AddItem(p.Label);
         period.Selected = Math.Clamp(_settings.Period, 0, Periods.Length - 1);
         period.ItemSelected += index =>
@@ -276,7 +284,7 @@ public class CombatGoalsMod : IMod
 
     // [icon] Hitpoints  28      1,271 /hr              1m 56s  left to [ 29 ]
     // [=============------------------------------------------------------]
-    Control BuildRow(Row row, string name, Dictionary<string, int> saved)
+    Control BuildRow(Row row, Dictionary<string, int> saved)
     {
         var panel = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Pass, Visible = false };
         panel.AddThemeStyleboxOverride("panel", _style.StatLine());
@@ -288,7 +296,7 @@ public class CombatGoalsMod : IMod
 
         string icon = row.Id[(row.Id.IndexOf(':') + 1)..];
         line.AddChild(_style.Picture(GameStyle.Icon(icon), 20));
-        Label nameLabel = _style.Text(name);
+        Label nameLabel = _style.Text(row.Name);
         nameLabel.CustomMinimumSize = new Vector2(_style.Px(72), 0);
         line.AddChild(nameLabel);
         row.LevelLabel = _style.Text("", GameStyle.TextGrey, 12, GameStyle.SemiBold);
@@ -309,7 +317,7 @@ public class CombatGoalsMod : IMod
         line.AddChild(row.TimeLabel);
         line.AddChild(_style.Text("left to", GameStyle.TextGrey, 12));
 
-        int level = row.Level(), cap = row.LevelCap();
+        int level = row.Experience.Level, cap = row.Experience.LevelCap;
         row.Target = _style.GoalBox();
         row.Target.MinValue = 1;
         row.Target.MaxValue = Math.Max(cap, 1);
@@ -443,13 +451,22 @@ public class CombatGoalsMod : IMod
         UpdateStripButton();
     }
 
-    // The window is for combat: outside it, it stays out of the way unless a combat skill is still listed.
-    bool WindowWanted => !_settings.Hidden && (_inCombat || _shown > 0);
+    // The window is for combat: outside it, it stays out of the way.
+    bool WindowWanted => !_settings.Hidden && _inCombat;
 
     bool InCombat(Game game)
     {
         try { return game.ActionManager.ActiveActions.Any(a => a.Entity.Id == "MelvorBase:Combat"); }
-        catch { return true; }   // cannot tell after a game update: behave as if always in combat
+        catch (Exception e) { Guessing(e); return true; }   // cannot tell: behave as if always in combat
+    }
+
+    // After a game update the mod may no longer be able to tell what is being fought. It goes on with a
+    // reasonable guess, and says so once.
+    void Guessing(Exception e)
+    {
+        if (_guessing) return;
+        _guessing = true;
+        _ctx.Log("Cannot tell what is being fought in this game version; rates are measured over all of combat. " + e.Message);
     }
 
     // What is being fought: the area, and in an ordinary area also the enemy. A dungeon is one fight from its
@@ -462,7 +479,7 @@ public class CombatGoalsMod : IMod
             ActiveCombatArea? area = combat.Areas.CurrentArea;
             return area?.Area is Dungeon ? (area, null) : (area, combat.Areas.SelectedEnemy);
         }
-        catch { return "combat"; }   // cannot tell after a game update: one fight for as long as combat runs
+        catch (Exception e) { Guessing(e); return "combat"; }   // one fight for as long as combat runs
     }
 
     // ---- the button in the game's strip of round buttons on the right edge -------------------------------
@@ -471,6 +488,7 @@ public class CombatGoalsMod : IMod
     // variation looks and behaves like its neighbours (lit green while the window is open).
     void UpdateStripButton()
     {
+        if (_game == null) return;   // the strip belongs to a character's screen
         if (_stripButton == null || !GodotObject.IsInstanceValid(_stripButton))
         {
             _stripButton = null;
@@ -480,6 +498,8 @@ public class CombatGoalsMod : IMod
                 _stripMissingLogged = true;
                 return;
             }
+            // The strip may be the one of the character before: its button goes, this one takes its place.
+            if (strip.GetNodeOrNull("CombatGoalsButton") is { } stale) { stale.Name = "CombatGoalsButtonGone"; stale.QueueFree(); }
             _stripButton = new Button
             {
                 Name = "CombatGoalsButton",
@@ -503,7 +523,7 @@ public class CombatGoalsMod : IMod
                 _stripButton.AddThemeStyleboxOverride("hover_pressed", open);
             }
         }
-        _stripButton.Visible = _inCombat || _shown > 0;
+        _stripButton.Visible = _inCombat;
         _stripButton.SetPressedNoSignal(!_settings.Hidden);
     }
 
@@ -514,7 +534,7 @@ public class CombatGoalsMod : IMod
         foreach (Row row in _rows)
         {
             if (gap) row.Samples.Clear();
-            row.Samples.Enqueue((now, row.Xp()));
+            row.Samples.Enqueue((now, row.Experience.Xp));
             while (row.Samples.Count > 2 && now - row.Samples.Peek().Ms > LongestPeriod * 1000)
                 row.Samples.Dequeue();
         }
@@ -544,8 +564,9 @@ public class CombatGoalsMod : IMod
             foreach (Row row in _rows)
             {
                 double rate = Rate(row, now);
-                int level = row.Level(), cap = row.LevelCap();
-                // Only skills that are gaining experience, and can still gain levels, are listed.
+                int level = row.Experience.Level, cap = row.Experience.LevelCap;
+                row.Target.MaxValue = Math.Max(cap, 1);   // the cap can rise while the window is up
+                // Only skills that are gaining XP, and can still gain levels, are listed.
                 row.Root.Visible = rate > 0 && level < cap;
                 if (!row.Root.Visible) continue;
                 shown++;
@@ -557,7 +578,8 @@ public class CombatGoalsMod : IMod
                     if (row.UserSetTarget) { row.UserSetTarget = false; SaveTargets(); }
                 }
 
-                double xp = row.Xp(), from = row.XpForLevel(level), goal = row.XpForLevel((int)row.Target.Value);
+                var table = row.Experience.Table;
+                double xp = row.Experience.Xp, from = table.GetXpForLevel(level), goal = table.GetXpForLevel((int)row.Target.Value);
                 row.LevelLabel.Text = level.ToString();
                 row.RateLabel.Text = (rate * 3600).ToString("N0");
                 row.TimeLabel.Text = goal <= xp ? "now" : FormatTime((goal - xp) / rate);
@@ -608,20 +630,24 @@ public class CombatGoalsMod : IMod
 
     Settings ReadSettings()
     {
-        try { return JsonSerializer.Deserialize<Settings>(File.ReadAllText(SettingsFile)) ?? new(); }
-        catch { return new(); }   // no file yet, or a broken one
+        Settings settings = ModFiles.ReadJson<Settings>(SettingsFile, _ctx.Log);
+        settings.Targets ??= new();   // "Targets": null in a hand-edited file
+        return settings;
     }
 
-    void WriteSettings()
+    // Dragging, a click and every step of a goal box all change a setting: they only mark it, and the file is
+    // written once, on the next one-second tick.
+    void WriteSettings() => _unsaved = true;
+
+    void FlushSettings()
     {
-        try
-        {
-            // Two copies of the game can run at once: keep the other characters' goals as they are on disk.
+        if (!_unsaved) return;
+        _unsaved = false;
+        // Two copies of the game can run at once: keep the other characters' goals as they are on disk.
+        if (File.Exists(SettingsFile))
             foreach (var (name, targets) in ReadSettings().Targets)
                 if (name != _game?.CharacterName) _settings.Targets[name] = targets;
-            File.WriteAllText(SettingsFile, JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true }));
-        }
-        catch (Exception e) { _ctx.Log("Could not save settings: " + e.Message); }
+        ModFiles.WriteJson(SettingsFile, _settings, _ctx.Log);
     }
 
     void SaveTargets()

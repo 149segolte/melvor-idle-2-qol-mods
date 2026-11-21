@@ -2,41 +2,68 @@ NAME
 Item Sources
 
 VERSION
-0.2.0
+{version}
 
 FILE
-dist/ItemSources-0.2.0.zip
+dist/ItemSources-{version}.zip
 
 REQUIREMENT
 Melvor Mod Loader, 0.1.3 or newer
 
-SUMMARY (the short line under the name)
-Hover "Found in" or "Used in" on an item: which enemy drops it and where, how many and how likely, and every recipe, chest, thieving target or shop purchase that gives or uses it. Alt keeps any item's tooltip open, anywhere in the game.
+PICTURES
+docs/img/item-sources.png (main), item-sources-used.png, item-sources-pin.png
+
+SUMMARY (the short line under the name, at most 350 characters)
+Hover "Found in" or "Used in" on an item: which enemy drops it and where, how many and how likely, and every recipe, chest, thieving target or shop purchase that gives or uses it. Press Alt on any item tooltip, anywhere in the game, to keep it open and do the same there.
 
 DESCRIPTION (paste as is: it is in Nexus formatting)
 
 [size=5][b]Item Sources[/b][/size]
-The game's item panel says "Found in" and "Used in" with a few skill icons. Hover either row and this lists what is behind them.
+The game's item panel says "Found in" and "Used in" and shows a few skill icons. This tells you what is behind them: which enemy, in which area, how many and how likely; which recipe, chest, thieving target or shop purchase.
 
-[b]Anywhere in the game:[/b] press [b]Alt[/b] while an item's tooltip is up (on a recipe's materials, in a shop, on loot) and the tooltip stays open, so you can move onto its two rows. Alt again, Esc or a click elsewhere closes it.
+[size=4][b]In the bank[/b][/size]
+Select an item and put the pointer on its "Found in" or "Used in" row. The list opens beside the panel. Nothing to click, nothing to set up.
 
-[list]
-[*][b]Found in[/b]: which enemy drops the item and where that enemy lives, which thieving target, hunting animal, chest, recipe, quest or shop purchase gives it, how many, and how likely.
-[*][b]Used in[/b]: every recipe, upgrade, shop purchase or animal that uses it, and how many.
+[size=4][b]Anywhere else: Alt[/b][/size]
+The game shows the same small tooltip for an item wherever the pointer is on one: a recipe's materials, a shop, loot. It follows the pointer, so its two rows cannot be reached.
+[list=1]
+[*]Point at the item, so its tooltip is up.
+[*]Press and let go of [b]Alt[/b]: a copy of the tooltip stays where it is.
+[*]Move onto its "Found in" or "Used in" row.
+[*]Alt again, Esc, or a click somewhere else closes it.
 [/list]
-The chances are worked out from the game's own drop tables. The list is read from the game's data when a character is opened, so items and enemies a game update adds show up by themselves.
+So while you look at a recipe: point at the material you are short of, press Alt, and see where it comes from.
+
+[size=4][b]Reading the list[/b][/size]
+[list]
+[*][b]Combat[/b] comes first: the enemy, the area it lives in, how many it drops and the chance per kill.
+[*][b]A skill's name[/b]: the thieving target, hunting animal or recipe that gives or uses the item.
+[*][b]Opening, Shop, Quests[/b]: chests, purchases, rewards.
+[*]"1-5" or "x2" is how many at a time; "6.41%" or "always" is the chance each time.
+[*]A long group shows its first eight lines and says how many more there are.
+[/list]
+
+[size=4][b]Good to know[/b][/size]
+[list]
+[*]The chances are the base ones from the game's own drop tables; bonuses to drop chance are not applied.
+[*]The list is read from the game's data when a character is opened, so items and enemies a game update adds show up by themselves.
+[*]Alt together with another key (Alt+Tab) is not this key.
+[/list]
 
 [size=4][b]Install[/b][/size]
 [list=1]
 [*]Install the [url=https://www.nexusmods.com/melvoridle2/mods/2]Melvor Mod Loader[/url] (0.1.3 or newer).
-[*]Extract this zip into the game folder: Steam > Melvor Idle 2 > Manage > Browse local files. The file ends up as [font=Courier New]mods\ItemSources\ItemSources.dll[/font].
+[*]Extract this zip into the game folder: Steam > right-click Melvor Idle 2 > Manage > Browse local files. The file ends up as [font=Courier New]mods\ItemSources\ItemSources.dll[/font].
 [*]Start the game.
 [/list]
+To update, extract the new zip over the old one.
+
 [size=4][b]Uninstall[/b][/size]
 Delete the folder [font=Courier New]mods\ItemSources[/font]. Nothing in your save is changed.
 
-[size=4][b]Good to know[/b][/size]
-Tested on game version 0.11.6-alpha.1 with Melvor Mod Loader 0.1.3. The game is in early access: an update can break the mod until it is rebuilt.
-It uses the game's own textures, fonts and colours, so it looks like part of the game.
-Open source (MIT): [url=https://github.com/Springs-Tea/melvor-2-mods]https://github.com/Springs-Tea/melvor-2-mods[/url]
+[size=4][b]About[/b][/size]
+Made for game version 0.11.6-alpha.1 with Melvor Mod Loader 0.1.3. The game is in early access: an update can break the mod until it is rebuilt. It then switches itself off and says so in MelvorModLoader.log; the game and your other mods keep running.
+It uses the game's own textures, fonts and colours, so it looks like part of the game. It gives no items, XP or bonuses.
+Open source (MIT), with more pictures and the full guide: [url=https://github.com/Springs-Tea/melvor-idle-2-qol-mods/tree/main/mods/ItemSources]https://github.com/Springs-Tea/melvor-idle-2-qol-mods/tree/main/mods/ItemSources[/url]
+Problems and ideas: [url=https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues]https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues[/url]
 Unofficial and fan-made. Not affiliated with Games by Malcs or Jagex.

@@ -2,35 +2,48 @@ NAME
 Kills in Combat
 
 VERSION
-0.1.0
+{version}
 
 FILE
-dist/KillsInCombat-0.1.0.zip
+dist/KillsInCombat-{version}.zip
 
 REQUIREMENT
 Melvor Mod Loader, 0.1.3 or newer
 
-SUMMARY (the short line under the name)
-Shows how many times you have killed the enemy you are fighting, next to its name.
+PICTURES
+docs/img/kills-in-combat.png
+
+SUMMARY (the short line under the name, at most 350 characters)
+Shows how many times you have killed the enemy you are fighting, in a small tag next to its name. The number is the game's own statistic, so it counts every kill since the character was made, offline ones included.
 
 DESCRIPTION (paste as is: it is in Nexus formatting)
 
 [size=5][b]Kills in Combat[/b][/size]
-Shows how many times you have killed the enemy you are fighting, in a small tag next to its name on the combat screen.
+A small tag next to the name of the enemy you are fighting, with the number of times you have killed it. That is the whole mod.
 
-The number is the game's own statistic, so it is right after offline progress too.
+[list]
+[*]It is on the combat screen, right after the enemy's name. Hover it for the sentence.
+[*]It follows the fight: change enemy and the number changes with it.
+[*]The number is the game's own statistic for that enemy: every kill since the character was made, not since you installed the mod, and kills made while the game was closed are in it.
+[/list]
+Useful for tasks that ask for a number of kills, and for knowing how unlucky you are with a rare drop.
+
+No settings, no files.
 
 [size=4][b]Install[/b][/size]
 [list=1]
 [*]Install the [url=https://www.nexusmods.com/melvoridle2/mods/2]Melvor Mod Loader[/url] (0.1.3 or newer).
-[*]Extract this zip into the game folder: Steam > Melvor Idle 2 > Manage > Browse local files. The file ends up as [font=Courier New]mods\KillsInCombat\KillsInCombat.dll[/font].
+[*]Extract this zip into the game folder: Steam > right-click Melvor Idle 2 > Manage > Browse local files. The file ends up as [font=Courier New]mods\KillsInCombat\KillsInCombat.dll[/font].
 [*]Start the game.
 [/list]
+To update, extract the new zip over the old one.
+
 [size=4][b]Uninstall[/b][/size]
 Delete the folder [font=Courier New]mods\KillsInCombat[/font]. Nothing in your save is changed.
 
-[size=4][b]Good to know[/b][/size]
-Tested on game version 0.11.6-alpha.1 with Melvor Mod Loader 0.1.3. The game is in early access: an update can break the mod until it is rebuilt.
-It uses the game's own textures, fonts and colours, so it looks like part of the game.
-Open source (MIT): [url=https://github.com/Springs-Tea/melvor-2-mods]https://github.com/Springs-Tea/melvor-2-mods[/url]
+[size=4][b]About[/b][/size]
+Made for game version 0.11.6-alpha.1 with Melvor Mod Loader 0.1.3. The game is in early access: an update can break the mod until it is rebuilt. It then switches itself off and says so in MelvorModLoader.log; the game and your other mods keep running.
+It uses the game's own textures, fonts and colours, so it looks like part of the game. It gives no items, XP or bonuses.
+Open source (MIT), with more pictures and the full guide: [url=https://github.com/Springs-Tea/melvor-idle-2-qol-mods/tree/main/mods/KillsInCombat]https://github.com/Springs-Tea/melvor-idle-2-qol-mods/tree/main/mods/KillsInCombat[/url]
+Problems and ideas: [url=https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues]https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues[/url]
 Unofficial and fan-made. Not affiliated with Games by Malcs or Jagex.
