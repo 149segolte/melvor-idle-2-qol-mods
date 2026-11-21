@@ -1,6 +1,10 @@
 <h1 align="center"><img src="../../docs/img/art/h-combat-goals.svg" alt="Combat Goals" width="720"></h1>
 
-<p align="center"><a href="../../README.md">All mods</a> · <a href="https://github.com/Springs-Tea/melvor-2-mods/releases">Download</a></p>
+<p align="center">
+  <a href="../../README.md"><img src="../../docs/img/art/btn-all-mods.svg" alt="All mods" height="46"></a>
+  &nbsp;
+  <a href="https://github.com/Springs-Tea/melvor-2-mods/releases"><img src="../../docs/img/art/btn-download.svg" alt="Download" height="46"></a>
+</p>
 
 > How long until Magic 20, while I am also training Hitpoints and Defence?
 

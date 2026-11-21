@@ -85,6 +85,14 @@ try {
             if (-not (Test-Path -LiteralPath $full)) { Fail "$page : link to $target leads nowhere." }
         }
     }
+
+    # 6. The version tags under the banner are pictures: their alt texts must say what is drawn.
+    $art = Get-Content tools/make-art.py -Raw
+    foreach ($name in 'GAME_VERSION', 'LOADER_VERSION') {
+        if ($art -notmatch "(?m)^$name = '([^']+)'") { Fail "tools/make-art.py : $name is missing."; continue }
+        $drawn = $Matches[1].TrimEnd('+')
+        if ($readme -notmatch [regex]::Escape($drawn)) { Fail "README.md : the alt text of a version tag does not say $drawn ($name in tools/make-art.py)." }
+    }
 }
 finally { Pop-Location }
 

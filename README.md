@@ -3,17 +3,32 @@
 </h1>
 
 <p align="center">
-  <img alt="Game version" src="https://img.shields.io/badge/Melvor%20Idle%202-0.11.6--alpha.1-8b5cf6">
-  <img alt="Loader" src="https://img.shields.io/badge/Melvor%20Mod%20Loader-0.1.3%2B-2baae1">
-  <img alt="Platform" src="https://img.shields.io/badge/Steam-Windows-41454c">
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-cd964f"></a>
+  <img src="docs/img/art/tag-game.svg" alt="Made for Melvor Idle 2 0.11.6-alpha.1" height="26">
+  <img src="docs/img/art/tag-loader.svg" alt="Needs Melvor Mod Loader 0.1.3 or newer" height="26">
+  <img src="docs/img/art/tag-platform.svg" alt="Steam, Windows" height="26">
+  <a href="LICENSE"><img src="docs/img/art/tag-license.svg" alt="MIT license" height="26"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Springs-Tea/melvor-2-mods/releases"><img src="docs/img/art/btn-download.svg" alt="Download the mods" height="46"></a>
+  &nbsp;
+  <a href="https://www.nexusmods.com/melvoridle2/mods/2"><img src="docs/img/art/btn-loader.svg" alt="Get the Melvor Mod Loader" height="46"></a>
+</p>
+
+<p align="center">
+  <a href="#the-mods">The mods</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#questions">Questions</a> ·
+  <a href="#how-they-are-built">How they are built</a> ·
+  <a href="#building-from-source">Building from source</a> ·
+  <a href="#credits">Credits</a>
 </p>
 
 <p align="center">
   <img src="docs/img/combat-simulator-compare.png" alt="The Combat Simulator" width="880">
 </p>
 
-<h2 align="center"><img src="docs/img/art/h-the-mods.svg" alt="The mods" width="720"></h2>
+<h2 align="center"><a name="the-mods"></a><img src="docs/img/art/h-the-mods.svg" alt="The mods" width="720"></h2>
 
 Take the ones you want. Each has a page of its own with pictures and details.
 
@@ -68,7 +83,7 @@ Take the ones you want. Each has a page of its own with pictures and details.
   </tr>
 </table>
 
-<h2 align="center"><img src="docs/img/art/h-install.svg" alt="Install" width="720"></h2>
+<h2 align="center"><a name="install"></a><img src="docs/img/art/h-install.svg" alt="Install" width="720"></h2>
 
 The mods run on the unofficial [Melvor Mod Loader](https://www.nexusmods.com/melvoridle2/mods/2). Everything
 is a plain zip that you extract into the game folder: no installer, nothing outside that folder.
@@ -92,7 +107,7 @@ Melvor Idle 2\
 **To remove a mod**, delete its folder under `mods`. Its settings (a window's place and size, your level
 goals) are in that folder too, so nothing is left behind.
 
-<h2 align="center"><img src="docs/img/art/h-questions.svg" alt="Questions" width="720"></h2>
+<h2 align="center"><a name="questions"></a><img src="docs/img/art/h-questions.svg" alt="Questions" width="720"></h2>
 
 <details>
 <summary><b>Is my save safe?</b></summary>
@@ -124,7 +139,11 @@ Open an [issue](https://github.com/Springs-Tea/melvor-2-mods/issues) with the mo
 game folder (it is rewritten on every start).
 </details>
 
-<h2 align="center"><img src="docs/img/art/h-how-they-are-built.svg" alt="How they are built" width="720"></h2>
+<p align="center">
+  <a href="https://github.com/Springs-Tea/melvor-2-mods/issues"><img src="docs/img/art/btn-issue.svg" alt="Report a problem" height="46"></a>
+</p>
+
+<h2 align="center"><a name="how-they-are-built"></a><img src="docs/img/art/h-how-they-are-built.svg" alt="How they are built" width="720"></h2>
 
 Every mod is a small C# class library that runs inside the game, compiled against the game's own assembly.
 
@@ -161,7 +180,7 @@ flowchart TB
 | `tools` | Scripts for building, packaging and looking around the game while developing. |
 | `docs/img` | The pictures on these pages. |
 
-<h2 align="center"><img src="docs/img/art/h-building.svg" alt="Building from source" width="720"></h2>
+<h2 align="center"><a name="building-from-source"></a><img src="docs/img/art/h-building.svg" alt="Building from source" width="720"></h2>
 
 You need the game with the loader installed, and the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 The projects reference the game's DLLs where the game is installed; pass `-p:GameDir="..."` when that is not
@@ -179,7 +198,7 @@ Want to change something or add a mod? See [CONTRIBUTING.md](CONTRIBUTING.md). W
 releases is in the [changelog](CHANGELOG.md), and what the mods do and do not do on your computer is in
 [SECURITY.md](SECURITY.md).
 
-<h2 align="center"><img src="docs/img/art/h-credits.svg" alt="Credits and license" width="720"></h2>
+<h2 align="center"><a name="credits"></a><img src="docs/img/art/h-credits.svg" alt="Credits and license" width="720"></h2>
 
 - [Melvor Mod Loader](https://github.com/falorfrozen-cmd/MelvorModLoader) by falorfrozen makes mods for this
   game possible. Its wiki is where to start if you want to write one.

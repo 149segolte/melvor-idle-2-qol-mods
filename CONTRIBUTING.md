@@ -84,11 +84,12 @@ These are what make the mods feel like part of the game and safe to install.
 - Add a picture when the change is visible.
 - Development helpers (request files, screenshots, dumps) belong inside `#if DEBUG`; a Release build must
   not contain them.
-- When you add a mod: its folder with both readmes, a line in the table of the main `README.md`, and a page
-  text in `publish/nexus`.
+- When you add a mod: its folder with both readmes, a line in the table of the main `README.md`, a page
+  text in `publish/nexus`, and its name in `tools/make-art.py` (the banner's list and the title of its page).
 
-The pictures at the top of the readmes (the banner and the paper titles) are drawn by `tools/make-art.py`;
-add a title there and run it again rather than editing the SVG files by hand.
+The drawn pictures of the readmes (the banner, the paper titles, the buttons, the tags under the banner)
+come from `tools/make-art.py`; change a title or a version there and run it again rather than editing the
+SVG files by hand. The checks run the script and fail when `docs/img/art` is not what it draws.
 
 ## Releasing (maintainers)
 

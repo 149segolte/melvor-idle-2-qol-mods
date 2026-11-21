@@ -1,6 +1,10 @@
 <h1 align="center"><img src="../../docs/img/art/h-recipe-rates.svg" alt="Recipe Rates" width="720"></h1>
 
-<p align="center"><a href="../../README.md">All mods</a> · <a href="https://github.com/Springs-Tea/melvor-2-mods/releases">Download</a></p>
+<p align="center">
+  <a href="../../README.md"><img src="../../docs/img/art/btn-all-mods.svg" alt="All mods" height="46"></a>
+  &nbsp;
+  <a href="https://github.com/Springs-Tea/melvor-2-mods/releases"><img src="../../docs/img/art/btn-download.svg" alt="Download" height="46"></a>
+</p>
 
 > Which recipe gives more XP per hour: the one that takes 60 seconds for 10 XP, or the one that takes 20 for 3?
 

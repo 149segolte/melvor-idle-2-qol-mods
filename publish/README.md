@@ -9,6 +9,9 @@ Loader and the other Melvor Idle 2 mods live. Each mod is a page of its own, so 
 2. `.\tools\package.ps1` builds every mod in Release and writes one zip per mod into `dist\`. A zip holds
    `mods\<Mod>\<Mod>.dll` and `README.txt`, nothing else: never the game's, Godot's or the loader's files.
 3. Try the Release build in the game (the Debug builds carry development helpers).
+4. When the game or the loader version the mods are made for has changed, set `GAME_VERSION` and
+   `LOADER_VERSION` at the top of `tools/make-art.py`, run `python tools/make-art.py`, and write the same
+   versions into the `alt` texts of the two version tags at the top of the main `README.md`.
 
 ## A mod's page on Nexus
 

@@ -1,6 +1,10 @@
 <h1 align="center"><img src="../../docs/img/art/h-combat-simulator.svg" alt="Combat Simulator" width="720"></h1>
 
-<p align="center"><a href="../../README.md">All mods</a> · <a href="https://github.com/Springs-Tea/melvor-2-mods/releases">Download</a></p>
+<p align="center">
+  <a href="../../README.md"><img src="../../docs/img/art/btn-all-mods.svg" alt="All mods" height="46"></a>
+  &nbsp;
+  <a href="https://github.com/Springs-Tea/melvor-2-mods/releases"><img src="../../docs/img/art/btn-download.svg" alt="Download" height="46"></a>
+</p>
 
 > What does an hour of this fight give me, what does it cost, and will I die?
 
