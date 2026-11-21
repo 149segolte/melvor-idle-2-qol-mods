@@ -1,0 +1,70 @@
+name: Something is wrong
+description: A mod shows a wrong number, looks broken, or does not load.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One problem per report, and a quick look through the open issues first, please.
+        If everything stopped right after the game updated, "Broke after a game update" is the shorter form.
+  - type: dropdown
+    id: mod
+    attributes:
+      label: Mod
+      options:
+        - Combat Simulator
+        - Item Sources
+        - Recipe Rates
+        - Combat Goals
+        - Kills in Combat
+        - Dungeon Completions
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, step by step, and what you saw. A screenshot says a lot.
+      placeholder: |
+        1. Opened Herblore.
+        2. The list shows 9,120 XP/h for the first potion.
+        3. Made that potion for ten minutes: the game's own average was about 7,000.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      placeholder: The number on the recipe to be close to what the game measures.
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game version
+      description: At the top of the screen in the game.
+      placeholder: 0.11.6-alpha.1
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Mod and loader version
+      description: 'Both are in MelvorModLoader.log: "Melvor Mod Loader 0.2.0 starting" and "Mod loaded: RecipeRates 0.3.0".'
+      placeholder: Recipe Rates 0.3.0, loader 0.2.0
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: >
+        MelvorModLoader.log from the game folder. It is rewritten on every start, so copy it right after the
+        problem happened. The loader writes your game folder's path into it, which you can remove.
+      render: text
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Does it happen every time? Which other mods are installed? Did you get the mod from Nexus Mods, from the releases here, or build it yourself?

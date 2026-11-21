@@ -92,8 +92,9 @@ Words a player reads in the game follow the game's own wording and number format
 - The check on a pull request is `Repository checks`. It guards the rules above; it cannot tell whether the
   mod works. A maintainer builds and tries a change in the game before merging it.
 - When you open an issue for someone, use the forms under `.github/ISSUE_TEMPLATE` and fill every field
-  they ask for: which mod, what was done and seen, what was expected, the game, mod and loader versions,
-  and `MelvorModLoader.log`. One problem per issue. Search the open issues first.
+  they ask for, under the same headings. A problem: Mod, What happened, What you expected, Game version,
+  Mod and loader version, Log. An idea: Mod, The situation, The idea, Today. One problem or idea per issue,
+  after a search through the open ones. Issue #2 is a filled-in idea.
 - Say that an agent wrote the issue or the pull request, and who asked for it.
 - Something that could harm a player is not a public issue: see [SECURITY.md](SECURITY.md).
 - Do not tag, release, publish to Nexus Mods or change repository settings. Those are the maintainer's.

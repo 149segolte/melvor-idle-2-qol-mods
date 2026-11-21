@@ -11,9 +11,9 @@ is needed to act on it, so nobody has to come back with questions:
 
 | Form | For | It asks for |
 | --- | --- | --- |
-| **Something is wrong** | A wrong number, a broken look, a mod that does not load. | The mod, what you did and saw, what you expected, the game, mod and loader versions, where the mod is from, the log. |
+| **Something is wrong** | A wrong number, a broken look, a mod that does not load. | The mod, what happened, what you expected, the game, mod and loader versions, the log. |
 | **Broke after a game update** | The game got a new version and a mod stopped working. | The new game version, the mods affected, what you see, the log. |
-| **An idea** | Something a mod could do better, or a new mod. | What you are trying to do in the game, what would help, how you manage today. |
+| **An idea** | Something a mod could do better, or a new mod. | The mod, the situation in the game, the idea, how you manage today. |
 
 Things that make a report easy to act on:
 
@@ -23,7 +23,8 @@ Things that make a report easy to act on:
   and, when a mod gave up, the reason.
 - **A screenshot** when something looks wrong.
 - **For an idea, the situation before the solution.** "I never know which enemy to train Ranged on" says
-  more than "add a table". [Issue #2](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues/2) is a filled-in example.
+  more than "add a table". [Issue #2](https://github.com/Springs-Tea/melvor-idle-2-qol-mods/issues/2) is a
+  filled-in example.
 - The mods only show and help: an idea that needs a mod to give items or XP, or to change the save, cannot
   be taken up.
 

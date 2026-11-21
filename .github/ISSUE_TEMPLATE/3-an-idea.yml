@@ -1,0 +1,43 @@
+name: An idea
+description: Something a mod could do better, or a new mod.
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One idea per issue, and a quick look through the open ones first, please.
+        The mods show what the game already knows and help you act on it. They never give items or XP and
+        never change the save, so an idea that needs either cannot be taken up.
+  - type: dropdown
+    id: mod
+    attributes:
+      label: Mod
+      options:
+        - A new mod
+        - Combat Simulator
+        - Item Sources
+        - Recipe Rates
+        - Combat Goals
+        - Kills in Combat
+        - Dungeon Completions
+    validations:
+      required: true
+  - type: textarea
+    id: situation
+    attributes:
+      label: The situation
+      description: What are you trying to do in the game? It matters more than the solution. "I never know which enemy to train Ranged on" says more than "add a table".
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What would help. A sketch, a small table, or a screenshot of how another game or mod does it is welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: Today
+      description: How do you manage now? By hand, with a spreadsheet, with another mod, not at all.
