@@ -24,12 +24,17 @@ sealed class Rates
     /// One thing that is made or used. <see cref="PerReward"/> is the long-run average, positive for gains;
     /// <see cref="Needed"/> is how many must be in the bank to start one (0 for things that are made).
     /// </summary>
-    public sealed record Line(string Name, double PerReward, long Needed, Item? Item, Currency? Currency);
+    public sealed record Line(string Name, double PerReward, long Needed, Item? Item, Currency? Currency)
+    {
+        // Some actions expose their own inventory. Read its stock alongside the rate.
+        public long? AvailableStock { get; init; }
+    }
 
     /// <summary>Seconds per cycle used to express average XP, products and costs.</summary>
     public double SecondsPerReward;
     public double RewardsPerHour => 3600 / SecondsPerReward;
     public string? TimingSummary;
+    public string? BaitSummary;
     public double XpPerHour;
     public readonly List<Line> Made = new(), Used = new();
     /// <summary>What the products of one hour sell for, in the game's main currency. 0 when unknown.</summary>
@@ -123,13 +128,16 @@ sealed class Rates
     /// How many seconds the bank's stock lasts, or null when the recipe uses nothing. 0 means there is not
     /// enough to start a single one.
     /// </summary>
-    public double? SecondsOfMaterials(BankEntity bank)
+    public double? SecondsOfMaterials(BankEntity? bank)
     {
         double? rewards = null;
         foreach (Line line in Used)
         {
-            double have = line.Item != null ? bank.Inventory.GetQuantity(line.Item)
-                        : line.Currency != null ? bank.Wallet.GetQuantity(line.Currency) : 0;
+            double have;
+            if (line.AvailableStock is { } stock) have = stock;
+            else if (bank == null) return null;
+            else have = line.Item != null ? bank.Inventory.GetQuantity(line.Item)
+                      : line.Currency != null ? bank.Wallet.GetQuantity(line.Currency) : 0;
             // Starting one needs the whole amount; over time, preservation stretches the stock.
             // With everything preserved nothing is used up: this material never runs out.
             if (have >= line.Needed && -line.PerReward < 1e-9) continue;

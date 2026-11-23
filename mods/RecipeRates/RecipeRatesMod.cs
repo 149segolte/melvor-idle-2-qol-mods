@@ -11,6 +11,7 @@ using GamesByMalcs.Melvor2.Entities;
 using GamesByMalcs.Melvor2.Entities.Bank;
 using GamesByMalcs.Melvor2.Entities.Cooking;
 using GamesByMalcs.Melvor2.Entities.Firemaking;
+using GamesByMalcs.Melvor2.Entities.Fishing;
 using GamesByMalcs.Melvor2.Entities.Herblore;
 using GamesByMalcs.Melvor2.Entities.Mining;
 using GamesByMalcs.Melvor2.Entities.Woodcutting;
@@ -56,6 +57,8 @@ public class RecipeRatesMod : IMod
     readonly Dictionary<ExperienceStats, WoodcuttingTree> _trees = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<ExperienceStats, (MiningRock Rock, MiningActionComponent Action)> _rocks =
         new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<ExperienceStats, (ActiveFishingRecipe Spot, FishingBaitComponent Bait)> _fishingSpots =
+        new(ReferenceEqualityComparer.Instance);
     readonly List<SkillXPPanel> _panels = new();
     readonly List<(SkillXPPanel Panel, Rates Rates, bool InList)> _shown = new();
     readonly Tempo _tick = new(500);
@@ -80,6 +83,7 @@ public class RecipeRatesMod : IMod
             _recipes.Clear();
             _trees.Clear();
             _rocks.Clear();
+            _fishingSpots.Clear();
             _panels.Clear();
             _shown.Clear();
             return;
@@ -102,8 +106,16 @@ public class RecipeRatesMod : IMod
         _recipes.Clear();
         _trees.Clear();
         _rocks.Clear();
+        _fishingSpots.Clear();
         _bank = game.Entities.TryGetObjectById("MelvorBase:Bank", out GameEntity? bank) ? bank as BankEntity : null;
         foreach (var entity in game.Entities.GetAllObjects())
+        {
+            if (entity is FishingEntity fishing)
+            {
+                foreach (ActiveFishingRecipe spot in fishing.Action.Recipes.Values)
+                    _fishingSpots[spot.Stats.Experience] = (spot, fishing.BaitComponent);
+            }
+
             foreach (var component in entity.Components.Values)
             {
                 if (component is WoodcuttingActionComponent woodcutting)
@@ -132,6 +144,7 @@ public class RecipeRatesMod : IMod
                 foreach (IActiveCraftingRecipe recipe in recipes)
                     _recipes[recipe.Stats.Experience] = recipe;
             }
+        }
         _ctx.Log($"Character opened: {_recipes.Count} recipes known.");
     }
 
@@ -192,13 +205,16 @@ public class RecipeRatesMod : IMod
             return WoodcuttingRates.For(tree);
         if (_rocks.TryGetValue(xp, out var mining))
             return MiningRates.For(mining.Rock, mining.Action);
+        if (_fishingSpots.TryGetValue(xp, out var fishing))
+            return FishingRates.For(fishing.Spot, fishing.Bait);
         return _recipes.TryGetValue(xp, out IActiveCraftingRecipe? recipe) ? Rates.For(recipe) : null;
     }
 
     static Control? ListCardOf(Node node)
     {
         for (Node? n = node.GetParent(); n != null; n = n.GetParent())
-            if (n is Control card && card is CraftingRecipeButton or WoodcuttingTreeSelectView or MiningRockSelectView)
+            if (n is Control card && card is CraftingRecipeButton or WoodcuttingTreeSelectView
+                    or MiningRockSelectView or FishingSpotSelectButton)
                 return card;
         return null;
     }
@@ -299,6 +315,7 @@ public class RecipeRatesMod : IMod
         double perHour = rates.RewardsPerHour;
         var sb = new StringBuilder();
         sb.Append('\n').Append(Marker).Append("[/color]");
+        if (rates.BaitSummary is { } bait) sb.Append($"\n[color={Quiet}]{bait}[/color]");
         sb.Append($"\nSkill XP: [color={Gain}]{Rates.Number(rates.XpPerHour)}[/color]");
         foreach (Rates.Line made in rates.Made)
             sb.Append($"\n{made.Name}: [color={Gain}]+{Rates.Number(made.PerReward * perHour)}[/color]");
@@ -314,7 +331,7 @@ public class RecipeRatesMod : IMod
 
         // Whole minutes: the bank changes with every item made, and a line that ticks would redraw the
         // tooltip all the time.
-        if (_bank != null && rates.SecondsOfMaterials(_bank) is { } seconds)
+        if (rates.SecondsOfMaterials(_bank) is { } seconds)
             sb.Append(seconds <= 0 ? $"\n[color={Loss}]Not enough materials[/color]"
                     : seconds < 60 ? $"\n[color={Quiet}]Materials for less than a minute[/color]"
                     : $"\n[color={Quiet}]Materials for {Whole(seconds)}[/color]");
