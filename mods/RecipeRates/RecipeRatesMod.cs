@@ -12,6 +12,7 @@ using GamesByMalcs.Melvor2.Entities.Bank;
 using GamesByMalcs.Melvor2.Entities.Cooking;
 using GamesByMalcs.Melvor2.Entities.Firemaking;
 using GamesByMalcs.Melvor2.Entities.Herblore;
+using GamesByMalcs.Melvor2.Entities.Woodcutting;
 using GamesByMalcs.Melvor2.Tooltips;
 using Godot;
 using MelvorModLoader;
@@ -51,6 +52,7 @@ public class RecipeRatesMod : IMod
     BankEntity? _bank;
     // Which recipe a "+13" tag belongs to: the tag shows the recipe's own XP stats object.
     readonly Dictionary<ExperienceStats, IActiveCraftingRecipe> _recipes = new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<ExperienceStats, WoodcuttingTree> _trees = new(ReferenceEqualityComparer.Instance);
     readonly List<SkillXPPanel> _panels = new();
     readonly List<(SkillXPPanel Panel, Rates Rates, bool InList)> _shown = new();
     readonly Tempo _tick = new(500);
@@ -68,7 +70,16 @@ public class RecipeRatesMod : IMod
         if (_stopped || !_tick.Due()) return;   // twice a second
         Game? game = GameAccess.CurrentGame;
         // On the main menu nothing of the character that was open is kept.
-        if (game is not { IsSaveLoaded: true }) { _game = null; _bank = null; _recipes.Clear(); _panels.Clear(); _shown.Clear(); return; }
+        if (game is not { IsSaveLoaded: true })
+        {
+            _game = null;
+            _bank = null;
+            _recipes.Clear();
+            _trees.Clear();
+            _panels.Clear();
+            _shown.Clear();
+            return;
+        }
         try
         {
             if (!ReferenceEquals(game, _game)) { _game = game; MapRecipes(game); }
@@ -85,10 +96,18 @@ public class RecipeRatesMod : IMod
     void MapRecipes(Game game)
     {
         _recipes.Clear();
+        _trees.Clear();
         _bank = game.Entities.TryGetObjectById("MelvorBase:Bank", out GameEntity? bank) ? bank as BankEntity : null;
         foreach (var entity in game.Entities.GetAllObjects())
             foreach (var component in entity.Components.Values)
             {
+                if (component is WoodcuttingActionComponent woodcutting)
+                {
+                    foreach (WoodcuttingTree tree in woodcutting.Trees.Values)
+                        _trees[tree.Stats.Experience] = tree;
+                    continue;
+                }
+
                 IEnumerable<IActiveCraftingRecipe>? recipes = component switch
                 {
                     ArtisanActionComponent a => a.ActiveRecipes.Values,
@@ -112,14 +131,14 @@ public class RecipeRatesMod : IMod
 
         foreach (SkillXPPanel panel in _panels)
         {
-            ExperienceStats? xp = ExperienceOf(panel);
-            if (xp == null || !_recipes.TryGetValue(xp, out IActiveCraftingRecipe? recipe) || Rates.For(recipe) is not { } rates)
+            Control? card = ListCardOf(panel);
+            if (RatesForPanel(panel, card) is not { } rates)
             {
                 // A reused tag that now shows something else.
                 if (panel.FindChild(LabelName, true, false) is Control stale) stale.Visible = false;
                 continue;
             }
-            _shown.Add((panel, rates, InRecipeList(panel)));
+            _shown.Add((panel, rates, card != null));
         }
 
         // The recipe with the most XP per hour among those listed stands out, when there is a choice.
@@ -131,7 +150,8 @@ public class RecipeRatesMod : IMod
         foreach (var (panel, rates, inList) in _shown)
         {
             bool isBest = inList && listed > 1 && best > 0 && rates.XpPerHour >= best - 0.5;
-            if (inList) ShowInList(panel, rates, isBest);
+            if (inList && ListCardOf(panel) is CraftingRecipeButton recipe)
+                ShowInList(panel, recipe, rates, isBest);
             if (_tooltips) ShowInTooltip(panel, rates, isBest);
         }
 
@@ -153,18 +173,24 @@ public class RecipeRatesMod : IMod
         for (int i = 0, n = node.GetChildCount(); i < n; i++) Collect(node.GetChild(i), panels);
     }
 
-    static CraftingRecipeButton? RecipeButtonOf(Node node)
+    Rates? RatesForPanel(SkillXPPanel panel, Control? card)
+    {
+        if (ExperienceOf(panel) is not { } xp) return null;
+        if (card is WoodcuttingTreeSelectView && _trees.TryGetValue(xp, out WoodcuttingTree? tree))
+            return WoodcuttingRates.For(tree);
+        return _recipes.TryGetValue(xp, out IActiveCraftingRecipe? recipe) ? Rates.For(recipe) : null;
+    }
+
+    static Control? ListCardOf(Node node)
     {
         for (Node? n = node.GetParent(); n != null; n = n.GetParent())
-            if (n is CraftingRecipeButton button) return button;
+            if (n is Control card && card is CraftingRecipeButton or WoodcuttingTreeSelectView) return card;
         return null;
     }
 
-    static bool InRecipeList(Node node) => RecipeButtonOf(node) != null;
-
     // ---- the list: "5,760 /hr" right under the game's "+8" tag --------------------------------------------
 
-    void ShowInList(SkillXPPanel panel, Rates rates, bool isBest)
+    void ShowInList(SkillXPPanel panel, CraftingRecipeButton recipe, Rates rates, bool isBest)
     {
         // Our line hangs on the tag's own label: a label does not arrange its children, so nothing in the
         // game's layout moves.
@@ -192,7 +218,7 @@ public class RecipeRatesMod : IMod
         // The space under the tag is free unless the recipe has a long row of ingredients: then fall back
         // to shorter forms rather than write over the last one.
         float right = panel.GlobalPosition.X + panel.Size.X - 2, top = panel.GlobalPosition.Y + panel.Size.Y + 1;
-        float taken = IngredientsEnd(panel, top);
+        float taken = IngredientsEnd(recipe, top);
         (string Number, bool Unit)[] forms =
         {
             (Rates.Number(rates.XpPerHour), true),
@@ -210,10 +236,10 @@ public class RecipeRatesMod : IMod
     }
 
     // Where the ingredient icons that share our line's height end, or far left when there are none.
-    static float IngredientsEnd(SkillXPPanel panel, float top)
+    static float IngredientsEnd(CraftingRecipeButton recipe, float top)
     {
         float end = float.MinValue;
-        if (RecipeButtonOf(panel)?.FindChild("RecipeCostContainer", true, false) is not Control costs) return end;
+        if (recipe.FindChild("RecipeCostContainer", true, false) is not Control costs) return end;
         for (int i = 0, n = costs.GetChildCount(); i < n; i++)
         {
             if (costs.GetChild(i) is not Control { Visible: true } icon) continue;

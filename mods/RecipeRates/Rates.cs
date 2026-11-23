@@ -93,13 +93,7 @@ sealed class Rates
         {
             if (node.Value is not { Item: { } item } product) continue;
             double amount = product.Quantity * Math.Clamp(product.Chance, 0, 1) * (1 + doubling) * r.Success;
-            if (amount <= 0) continue;
-            r.Made.Add(new Line(item.DisplayName.GetPluralText(2), amount, 0, item, null));
-            if (item.SellsFor is { Currency: { Id: Gold } gold, Quantity: > 0 } price)
-            {
-                r.SellValuePerHour += amount * price.Quantity * r.RewardsPerHour;
-                r.SellCurrency = gold.DisplayNameShort?.Text is { Length: > 0 } shortName ? shortName : gold.DisplayName.Text;
-            }
+            r.AddProduct(item, amount);
         }
 
         // Ingredients are kept by chance; a failed attempt has a chance of its own.
@@ -111,6 +105,17 @@ sealed class Rates
             if (node.Value is { Currency: { } currency } cost && cost.Quantity > 0)
                 r.Used.Add(new Line(currency.DisplayName.Text, -cost.Quantity * spent, cost.Quantity, null, currency));
         return r;
+    }
+
+    public void AddProduct(Item item, double amount)
+    {
+        if (amount <= 0) return;
+        Made.Add(new Line(item.DisplayName.GetPluralText(2), amount, 0, item, null));
+        if (item.SellsFor is { Currency: { Id: Gold } gold, Quantity: > 0 } price)
+        {
+            SellValuePerHour += amount * price.Quantity * RewardsPerHour;
+            SellCurrency = gold.DisplayNameShort?.Text is { Length: > 0 } shortName ? shortName : gold.DisplayName.Text;
+        }
     }
 
     /// <summary>
