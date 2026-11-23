@@ -26,9 +26,10 @@ sealed class Rates
     /// </summary>
     public sealed record Line(string Name, double PerReward, long Needed, Item? Item, Currency? Currency);
 
-    /// <summary>Seconds per "reward": the moment XP, products and costs are applied.</summary>
+    /// <summary>Seconds per cycle used to express average XP, products and costs.</summary>
     public double SecondsPerReward;
     public double RewardsPerHour => 3600 / SecondsPerReward;
+    public string? TimingSummary;
     public double XpPerHour;
     public readonly List<Line> Made = new(), Used = new();
     /// <summary>What the products of one hour sell for, in the game's main currency. 0 when unknown.</summary>
@@ -138,7 +139,7 @@ sealed class Rates
         return rewards * SecondsPerReward;
     }
 
-    static double Chance(ModifierStatNodes? nodes) => nodes == null ? 0 : Math.Clamp(nodes.Total.Value, 0, 1);
+    internal static double Chance(ModifierStatNodes? nodes) => nodes == null ? 0 : Math.Clamp(nodes.Total.Value, 0, 1);
 
     /// <summary>12 -> "12", 5760 -> "5,760", 123456 -> "123.5K".</summary>
     public static string Number(double value) => Math.Abs(value) switch

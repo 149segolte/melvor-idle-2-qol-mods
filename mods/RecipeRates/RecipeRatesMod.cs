@@ -12,6 +12,7 @@ using GamesByMalcs.Melvor2.Entities.Bank;
 using GamesByMalcs.Melvor2.Entities.Cooking;
 using GamesByMalcs.Melvor2.Entities.Firemaking;
 using GamesByMalcs.Melvor2.Entities.Herblore;
+using GamesByMalcs.Melvor2.Entities.Mining;
 using GamesByMalcs.Melvor2.Entities.Woodcutting;
 using GamesByMalcs.Melvor2.Tooltips;
 using Godot;
@@ -53,6 +54,8 @@ public class RecipeRatesMod : IMod
     // Which recipe a "+13" tag belongs to: the tag shows the recipe's own XP stats object.
     readonly Dictionary<ExperienceStats, IActiveCraftingRecipe> _recipes = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<ExperienceStats, WoodcuttingTree> _trees = new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<ExperienceStats, (MiningRock Rock, MiningActionComponent Action)> _rocks =
+        new(ReferenceEqualityComparer.Instance);
     readonly List<SkillXPPanel> _panels = new();
     readonly List<(SkillXPPanel Panel, Rates Rates, bool InList)> _shown = new();
     readonly Tempo _tick = new(500);
@@ -76,6 +79,7 @@ public class RecipeRatesMod : IMod
             _bank = null;
             _recipes.Clear();
             _trees.Clear();
+            _rocks.Clear();
             _panels.Clear();
             _shown.Clear();
             return;
@@ -97,6 +101,7 @@ public class RecipeRatesMod : IMod
     {
         _recipes.Clear();
         _trees.Clear();
+        _rocks.Clear();
         _bank = game.Entities.TryGetObjectById("MelvorBase:Bank", out GameEntity? bank) ? bank as BankEntity : null;
         foreach (var entity in game.Entities.GetAllObjects())
             foreach (var component in entity.Components.Values)
@@ -105,6 +110,13 @@ public class RecipeRatesMod : IMod
                 {
                     foreach (WoodcuttingTree tree in woodcutting.Trees.Values)
                         _trees[tree.Stats.Experience] = tree;
+                    continue;
+                }
+
+                if (component is MiningActionComponent mining)
+                {
+                    foreach (MiningRock rock in mining.Rocks.Values)
+                        _rocks[rock.Stats.Experience] = (rock, mining);
                     continue;
                 }
 
@@ -178,13 +190,16 @@ public class RecipeRatesMod : IMod
         if (ExperienceOf(panel) is not { } xp) return null;
         if (card is WoodcuttingTreeSelectView && _trees.TryGetValue(xp, out WoodcuttingTree? tree))
             return WoodcuttingRates.For(tree);
+        if (_rocks.TryGetValue(xp, out var mining))
+            return MiningRates.For(mining.Rock, mining.Action);
         return _recipes.TryGetValue(xp, out IActiveCraftingRecipe? recipe) ? Rates.For(recipe) : null;
     }
 
     static Control? ListCardOf(Node node)
     {
         for (Node? n = node.GetParent(); n != null; n = n.GetParent())
-            if (n is Control card && card is CraftingRecipeButton or WoodcuttingTreeSelectView) return card;
+            if (n is Control card && card is CraftingRecipeButton or WoodcuttingTreeSelectView or MiningRockSelectView)
+                return card;
         return null;
     }
 
@@ -292,7 +307,8 @@ public class RecipeRatesMod : IMod
         if (rates.SellValuePerHour >= 1)
             sb.Append($"\nSell value: [color={Highlight}]{Rates.Number(rates.SellValuePerHour)} {rates.SellCurrency}[/color]");
 
-        sb.Append($"\n\n[color={Quiet}]One every {rates.SecondsPerReward:0.##}s");
+        sb.Append($"\n\n[color={Quiet}]");
+        sb.Append(rates.TimingSummary ?? $"One every {rates.SecondsPerReward:0.##}s");
         if (rates.Success < 0.9995) sb.Append($", {rates.Success:P0} success");
         sb.Append("[/color]");
 
